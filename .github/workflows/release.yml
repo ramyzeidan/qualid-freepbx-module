@@ -1,0 +1,53 @@
+name: Build & Release
+
+# Triggers when you push a tag like v1.0.1, v1.2.0, etc.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from module.xml
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=<version>)[^<]+' qualid_remote/module.xml | head -1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build .tar.gz package
+        run: |
+          tar -czf qualid_remote.tar.gz \
+            --exclude="*.swp" \
+            --exclude=".DS_Store" \
+            qualid_remote/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "QUALI-D Remote Agent Module v${{ steps.version.outputs.version }}"
+          body: |
+            ## Install on FreePBX
+
+            Run this on your FreePBX server:
+            ```bash
+            fwconsole ma downloadinstall https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/qualid_remote.tar.gz
+            fwconsole reload
+            ```
+
+            Or always install the **latest version**:
+            ```bash
+            fwconsole ma downloadinstall https://github.com/${{ github.repository }}/releases/latest/download/qualid_remote.tar.gz
+            fwconsole reload
+            ```
+          files: qualid_remote.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

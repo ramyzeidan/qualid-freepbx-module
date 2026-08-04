@@ -1,0 +1,527 @@
+/* =============================================================================
+   QUALI-D Remote Agent — Module Styles
+   Brand: dark navy (#0b1e3d) + electric blue (#1a7fff) + teal glow (#00d4ff)
+   ============================================================================= */
+
+/* ---------- Hero Banner ---------- */
+.qualid-hero {
+    background: linear-gradient(135deg, #0b1e3d 0%, #0d2a55 60%, #0a3a6e 100%);
+    border-radius: 12px;
+    padding: 28px 36px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 32px rgba(11, 30, 61, 0.45), 0 0 0 1px rgba(26, 127, 255, 0.18);
+    position: relative;
+    overflow: hidden;
+}
+
+.qualid-hero::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(0, 212, 255, 0.12) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.qualid-hero::after {
+    content: '';
+    position: absolute;
+    bottom: -40px; left: 40%;
+    width: 300px; height: 160px;
+    background: radial-gradient(ellipse, rgba(26, 127, 255, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.qualid-hero-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.qualid-logo {
+    height: 48px;
+    width: auto;
+    filter: drop-shadow(0 0 12px rgba(0, 212, 255, 0.3));
+}
+
+.qualid-hero-text h1 {
+    margin: 0 0 4px 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.3px;
+}
+
+.qualid-hero-text p {
+    margin: 0;
+    font-size: 13px;
+    color: rgba(255,255,255,0.55);
+}
+
+.qualid-hero-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.qualid-version {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* ---------- Status Pill ---------- */
+.qualid-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+}
+
+.qualid-status-pill .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.qualid-status-pill.connected {
+    background: rgba(0, 200, 100, 0.15);
+    color: #00c864;
+    border: 1px solid rgba(0, 200, 100, 0.3);
+}
+.qualid-status-pill.connected .status-dot {
+    background: #00c864;
+    box-shadow: 0 0 6px #00c864;
+    animation: qualid-pulse 2s infinite;
+}
+
+.qualid-status-pill.disconnected {
+    background: rgba(255, 80, 80, 0.12);
+    color: #ff5050;
+    border: 1px solid rgba(255, 80, 80, 0.25);
+}
+.qualid-status-pill.disconnected .status-dot {
+    background: #ff5050;
+}
+
+.qualid-status-pill.warning {
+    background: rgba(255, 165, 0, 0.12);
+    color: #ffa500;
+    border: 1px solid rgba(255, 165, 0, 0.25);
+}
+.qualid-status-pill.warning .status-dot {
+    background: #ffa500;
+}
+
+@keyframes qualid-pulse {
+    0%, 100% { box-shadow: 0 0 4px #00c864; }
+    50%       { box-shadow: 0 0 10px #00c864, 0 0 20px rgba(0,200,100,0.3); }
+}
+
+/* ---------- Cards ---------- */
+.qualid-card {
+    background: #ffffff;
+    border: 1px solid #e4eaf3;
+    border-radius: 10px;
+    margin-bottom: 22px;
+    box-shadow: 0 2px 12px rgba(11, 30, 61, 0.06);
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+}
+
+.qualid-card:hover {
+    box-shadow: 0 4px 20px rgba(11, 30, 61, 0.1);
+}
+
+.qualid-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    background: linear-gradient(90deg, #f5f8ff 0%, #fafbff 100%);
+    border-bottom: 1px solid #e4eaf3;
+}
+
+.qualid-card-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #0b1e3d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.qualid-card-header h3 .card-icon {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, #1a7fff, #00d4ff);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.qualid-card-body {
+    padding: 22px;
+}
+
+/* ---------- API Key Input ---------- */
+.qualid-apikey-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.qualid-apikey-wrap .form-control {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    border: 2px solid #dde5f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    color: #1a2a4a;
+}
+
+.qualid-apikey-wrap .form-control:focus {
+    border-color: #1a7fff;
+    box-shadow: 0 0 0 3px rgba(26, 127, 255, 0.12);
+    outline: none;
+}
+
+/* ---------- Buttons ---------- */
+.qualid-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.qualid-btn:focus { outline: none; }
+
+.qualid-btn-primary {
+    background: linear-gradient(135deg, #1a7fff, #0062e6);
+    color: #fff;
+    box-shadow: 0 3px 12px rgba(26, 127, 255, 0.35);
+}
+.qualid-btn-primary:hover {
+    background: linear-gradient(135deg, #2d8fff, #1a7fff);
+    box-shadow: 0 5px 18px rgba(26, 127, 255, 0.45);
+    transform: translateY(-1px);
+    color: #fff;
+}
+.qualid-btn-primary:active { transform: translateY(0); }
+
+.qualid-btn-danger {
+    background: linear-gradient(135deg, #ff4d4d, #d93232);
+    color: #fff;
+    box-shadow: 0 3px 12px rgba(255, 77, 77, 0.25);
+}
+.qualid-btn-danger:hover {
+    background: linear-gradient(135deg, #ff6060, #e04040);
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.qualid-btn-outline {
+    background: transparent;
+    border: 2px solid #dde5f0;
+    color: #4a6080;
+}
+.qualid-btn-outline:hover {
+    border-color: #1a7fff;
+    color: #1a7fff;
+    background: rgba(26, 127, 255, 0.05);
+}
+
+.qualid-btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.qualid-btn:disabled, .qualid-btn[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* ---------- Connection Info Grid ---------- */
+.qualid-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.qualid-info-item {
+    background: #f7faff;
+    border: 1px solid #e4eaf3;
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+.qualid-info-item label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    color: #8a9db5;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.qualid-info-item span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a2a4a;
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+
+/* ---------- Agent Table ---------- */
+.qualid-agent-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+
+.qualid-agent-table thead tr {
+    background: linear-gradient(90deg, #f0f5ff 0%, #f5f8ff 100%);
+}
+
+.qualid-agent-table th {
+    padding: 11px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: #8a9db5;
+    border-bottom: 2px solid #e4eaf3;
+}
+
+.qualid-agent-table td {
+    padding: 13px 16px;
+    border-bottom: 1px solid #f0f4fb;
+    color: #2a3a5a;
+    vertical-align: middle;
+}
+
+.qualid-agent-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.qualid-agent-table tbody tr {
+    transition: background 0.15s ease;
+}
+
+.qualid-agent-table tbody tr:hover {
+    background: #f7faff;
+}
+
+.agent-name-cell {
+    font-weight: 600;
+    color: #0b1e3d;
+}
+
+.agent-sip-cell {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #1a7fff;
+}
+
+/* ---------- Registration Badge ---------- */
+.reg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.reg-badge.online {
+    background: rgba(0, 200, 100, 0.12);
+    color: #00a855;
+    border: 1px solid rgba(0, 200, 100, 0.25);
+}
+.reg-badge.offline {
+    background: rgba(150, 160, 175, 0.12);
+    color: #8090a8;
+    border: 1px solid rgba(150, 160, 175, 0.2);
+}
+.reg-badge.provisioned {
+    background: rgba(26, 127, 255, 0.1);
+    color: #1a7fff;
+    border: 1px solid rgba(26, 127, 255, 0.2);
+}
+.reg-badge .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.reg-badge.online .dot { animation: qualid-pulse 2s infinite; }
+
+/* ---------- Alert Boxes ---------- */
+.qualid-alert {
+    padding: 13px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 16px;
+    animation: qualid-fadein 0.3s ease;
+}
+
+.qualid-alert i { margin-top: 1px; flex-shrink: 0; }
+
+.qualid-alert-error {
+    background: rgba(255, 80, 80, 0.08);
+    border: 1px solid rgba(255, 80, 80, 0.25);
+    color: #c0392b;
+}
+
+.qualid-alert-success {
+    background: rgba(0, 200, 100, 0.08);
+    border: 1px solid rgba(0, 200, 100, 0.25);
+    color: #1a7a4a;
+}
+
+.qualid-alert-info {
+    background: rgba(26, 127, 255, 0.07);
+    border: 1px solid rgba(26, 127, 255, 0.2);
+    color: #1a4a7a;
+}
+
+/* ---------- Spinner ---------- */
+.qualid-spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: qualid-spin 0.7s linear infinite;
+}
+.qualid-spinner.dark {
+    border-color: rgba(26, 127, 255, 0.2);
+    border-top-color: #1a7fff;
+}
+
+@keyframes qualid-spin { to { transform: rotate(360deg); } }
+@keyframes qualid-fadein {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Empty State ---------- */
+.qualid-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: #8a9db5;
+}
+.qualid-empty .empty-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+.qualid-empty p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* ---------- Setup Steps ---------- */
+.qualid-steps {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #e4eaf3;
+}
+
+.qualid-step {
+    flex: 1;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #f9fafb;
+    border-right: 1px solid #e4eaf3;
+    font-size: 12px;
+    color: #8a9db5;
+    transition: all 0.2s;
+}
+.qualid-step:last-child { border-right: none; }
+
+.qualid-step.active {
+    background: #fff;
+    color: #0b1e3d;
+}
+
+.qualid-step.done {
+    background: rgba(0, 200, 100, 0.05);
+    color: #00a855;
+}
+
+.qualid-step-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: #dde5f0;
+    color: #8a9db5;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s;
+}
+.qualid-step.active .qualid-step-num {
+    background: linear-gradient(135deg, #1a7fff, #00d4ff);
+    color: #fff;
+}
+.qualid-step.done .qualid-step-num {
+    background: #00c864;
+    color: #fff;
+}
+
+/* ---------- Divider ---------- */
+.qualid-divider {
+    border: none;
+    border-top: 1px solid #edf1f8;
+    margin: 20px 0;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+    .qualid-hero { flex-direction: column; gap: 16px; align-items: flex-start; }
+    .qualid-info-grid { grid-template-columns: 1fr; }
+    .qualid-steps { flex-direction: column; }
+    .qualid-step { border-right: none; border-bottom: 1px solid #e4eaf3; }
+    .qualid-apikey-wrap { flex-direction: column; }
+}

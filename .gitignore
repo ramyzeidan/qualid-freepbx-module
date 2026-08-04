@@ -1,0 +1,17 @@
+# Build output
+*.tar.gz
+*.zip
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# PHP cache
+*.cache

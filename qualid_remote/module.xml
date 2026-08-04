@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module>
+    <rawname>qualid_remote</rawname>
+    <repo>standard</repo>
+    <name>QUALI-D Remote Agent</name>
+    <version>1.0.0</version>
+    <publisher>QUALI-D</publisher>
+    <license>Commercial</license>
+    <licenselink>https://quali-d.com</licenselink>
+    <type>setup</type>
+    <category>Connectivity</category>
+    <description>
+        Allow call center agents to receive FreePBX calls from anywhere in the
+        world — including countries where SIP port 5060 is blocked (e.g. Egypt)
+        — via the QUALI-D cloud SIP relay. All traffic runs over port 443.
+        Simply enter your QUALI-D API key and the module configures everything
+        automatically: SIP trunk, dialplan rules, and agent credentials.
+    </description>
+    <changelog>
+        <version version="1.0.0">Initial release — auto-provisioning, agent management, WSS trunk</version>
+    </changelog>
+    <depends>
+        <module>core</module>
+    </depends>
+    <menuitems>
+        <qualid_remote>QUALI-D Remote Agent</qualid_remote>
+    </menuitems>
+</module>
