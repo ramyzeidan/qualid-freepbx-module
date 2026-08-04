@@ -98,7 +98,12 @@ $existingTag = git tag -l $tag
 if ($existingTag) {
     Write-Warn "Tag $tag already exists - deleting and recreating..."
     git tag -d $tag
-    git push origin ":refs/tags/$tag" 2>$null
+    try {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        git push origin ":refs/tags/$tag" 2>&1 | Out-Null
+        $ErrorActionPreference = $prev
+    } catch { }
 }
 
 Write-Info "Creating tag $tag and pushing..."
