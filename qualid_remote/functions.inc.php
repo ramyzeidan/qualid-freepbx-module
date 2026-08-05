@@ -78,8 +78,8 @@ function qualid_provision($api_key) {
     if (!$data) {
         return ['success' => false, 'error' => 'Invalid response from QUALI-D API (HTTP ' . $code . ')'];
     }
-    if (!($data['success'] ?? false)) {
-        return ['success' => false, 'error' => $data['error'] ?? 'Unknown API error'];
+    if (!(isset($data['success']) ? $data['success'] : false)) {
+        return ['success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Unknown API error'];
     }
 
     return ['success' => true, 'data' => $data];
@@ -105,7 +105,7 @@ function qualid_get_agents($api_key) {
 
     if ($err || !$raw) return [];
     $data = json_decode($raw, true);
-    return $data['agents'] ?? [];
+    return isset($data['agents']) ? $data['agents'] : [];
 }
 
 /**
@@ -131,7 +131,7 @@ function qualid_provision_agent($api_key, $agent_id, $agent_name) {
     curl_close($ch);
 
     $data = json_decode($raw, true);
-    return $data ?? ['success' => false, 'error' => 'No response'];
+    return $data ? $data : ['success' => false, 'error' => 'No response'];
 }
 
 // ---------------------------------------------------------------------------

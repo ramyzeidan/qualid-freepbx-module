@@ -17,13 +17,13 @@ echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
 if (isset($_GET['action']) && $_GET['action'] === 'ajax') {
     header('Content-Type: application/json');
 
-    $ajax_action = $_POST['ajax_action'] ?? $_GET['ajax_action'] ?? '';
+    $ajax_action = isset($_POST['ajax_action']) ? $_POST['ajax_action'] : (isset($_GET['ajax_action']) ? $_GET['ajax_action'] : '');
 
     switch ($ajax_action) {
 
         // -- Provision (connect) -------------------------------------------
         case 'provision':
-            $api_key = trim($_POST['api_key'] ?? '');
+            $api_key = trim(isset($_POST['api_key']) ? $_POST['api_key'] : '');
             if (!$api_key) {
                 echo json_encode(['success' => false, 'error' => 'API key is required.']);
                 exit;
@@ -38,11 +38,11 @@ if (isset($_GET['action']) && $_GET['action'] === 'ajax') {
 
             $data = $result['data'];
             qualid_set('api_key',      $api_key);
-            qualid_set('company_id',   $data['company_id'] ?? '');
+            qualid_set('company_id',   isset($data['company_id']) ? $data['company_id'] : '');
             qualid_set('sip_domain',   $data['sip_domain']);
             qualid_set('trunk_user',   $data['trunk_username']);
             qualid_set('trunk_pass',   $data['trunk_password']);
-            qualid_set('turn_server',  $data['turn_server'] ?? '');
+            qualid_set('turn_server',  isset($data['turn_server']) ? $data['turn_server'] : '');
             qualid_set('connected',    '1');
             qualid_set('connected_at', date('Y-m-d H:i:s'));
             qualid_set('last_error',   '');
@@ -81,8 +81,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'ajax') {
         // -- Provision single agent ---------------------------------------
         case 'provision_agent':
             $api_key    = qualid_get('api_key');
-            $agent_id   = trim($_POST['agent_id'] ?? '');
-            $agent_name = trim($_POST['agent_name'] ?? '');
+            $agent_id   = trim(isset($_POST['agent_id']) ? $_POST['agent_id'] : '');
+            $agent_name = trim(isset($_POST['agent_name']) ? $_POST['agent_name'] : '');
             if (!$api_key || !$agent_id) {
                 echo json_encode(['success' => false, 'error' => 'Not configured.']);
                 exit;
