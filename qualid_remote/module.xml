@@ -16,9 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>
-        <version version="1.0.0">Initial release — auto-provisioning, agent management, WSS trunk</version>
-    </changelog>
+    <changelog>1.0.1: Update server URLs to production deployment
+1.0.0: Initial release — auto-provisioning, agent management, WSS trunk</changelog>
     <depends>
         <module>core</module>
     </depends>
