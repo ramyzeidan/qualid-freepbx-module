@@ -9,8 +9,8 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-define('QUALID_API_BASE',     'https://api.quali-d.com');
-define('QUALID_CLOUD_SERVER', 'sip.quali-d.com');
+define('QUALID_API_BASE',     'https://qualidapi1.1215515.xyz');
+define('QUALID_CLOUD_SERVER', 'qualidsip1.1215515.xyz');
 define('QUALID_CLOUD_PORT',   443);
 define('QUALID_TRUNK_NAME',   'QualidRemote');
 define('QUALID_CONTEXT',      'qualid-remote-agents');
