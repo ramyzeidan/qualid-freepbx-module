@@ -429,7 +429,7 @@ $is_connected = $status['status'] === 'connected';
                         <div style="margin-top:10px;font-size:12px;">
                             To route a call to a remote agent, use:<br>
                             <code style="background:rgba(26,127,255,0.08);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px;">
-                                DIAL(PJSIP/&lt;agent_code&gt;%40<?= htmlspecialchars($cfg['sip_domain']) ?>@QualidRemote_endpoint,60)
+                                Dial(PJSIP/&lt;agent_code&gt;@QualidRemote_endpoint,60)
                             </code>
                         </div>
                     </div>
