@@ -7,7 +7,7 @@
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
-    <type>setup</type>
+    <type>connectivity</type>
     <category>Connectivity</category>
     <description>
         Allow call center agents to receive FreePBX calls from anywhere in the
