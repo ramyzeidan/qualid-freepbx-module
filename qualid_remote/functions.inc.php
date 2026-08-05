@@ -9,11 +9,12 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-define('QUALID_API_BASE',     'https://qualidapi1.1215515.xyz');
-define('QUALID_CLOUD_SERVER', 'qualidsip1.1215515.xyz');
-define('QUALID_CLOUD_PORT',   443);
-define('QUALID_TRUNK_NAME',   'QualidRemote');
-define('QUALID_CONTEXT',      'qualid-remote-agents');
+define('QUALID_MAIN_API',    'https://api.quali-d.com');
+define('QUALID_RELAY_URL',   'https://qualidapi1.1215515.xyz');
+define('QUALID_CLOUD_SERVER','qualidsip1.1215515.xyz');
+define('QUALID_CLOUD_PORT',  443);
+define('QUALID_TRUNK_NAME',  'QualidRemote');
+define('QUALID_CONTEXT',     'qualid-remote-agents');
 
 // ---------------------------------------------------------------------------
 // Config storage (JSON file — no FreePBX API dependency)
@@ -47,37 +48,30 @@ function qualid_set($key, $value) {
 
 function qualid_get_all() {
     return [
-        'api_key'        => qualid_get('api_key',        ''),
-        'company_id'     => qualid_get('company_id',     ''),
-        'sip_domain'     => qualid_get('sip_domain',     ''),
-        'trunk_user'     => qualid_get('trunk_user',     ''),
-        'trunk_pass'     => qualid_get('trunk_pass',     ''),
-        'turn_server'    => qualid_get('turn_server',    ''),
-        'connected'      => qualid_get('connected',      '0'),
-        'connected_at'   => qualid_get('connected_at',   ''),
-        'last_error'     => qualid_get('last_error',     ''),
+        'token'              => qualid_get('token',              ''),
+        'user_name'          => qualid_get('user_name',          ''),
+        'company_name'       => qualid_get('company_name',       ''),
+        'sip_domain'         => qualid_get('sip_domain',         ''),
+        'trunk_user'         => qualid_get('trunk_user',         ''),
+        'trunk_pass'         => qualid_get('trunk_pass',         ''),
+        'turn_server'        => qualid_get('turn_server',        ''),
+        'connected'          => qualid_get('connected',          '0'),
+        'connected_at'       => qualid_get('connected_at',       ''),
+        'last_error'         => qualid_get('last_error',         ''),
+        'provisioned_agents' => qualid_get('provisioned_agents', []),
     ];
 }
 
 // ---------------------------------------------------------------------------
-// QUALI-D Cloud API calls
+// HTTP helper
 // ---------------------------------------------------------------------------
 
-/**
- * Calls POST /api/pbx/provision on the QUALI-D cloud
- * Returns array with success + data, or success=false + error
- */
-function qualid_provision($api_key) {
-    $payload = json_encode([
-        'api_key'   => $api_key,
-        'pbx_label' => gethostname(),
-    ]);
-
-    $ch = curl_init(QUALID_API_BASE . '/api/pbx/provision');
+function qualid_curl_post($url, $payload, $extra_headers = []) {
+    $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS     => json_encode($payload),
+        CURLOPT_HTTPHEADER     => array_merge(['Content-Type: application/json'], $extra_headers),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
@@ -87,30 +81,85 @@ function qualid_provision($api_key) {
     $err  = curl_error($ch);
     curl_close($ch);
 
-    if ($err) {
-        return ['success' => false, 'error' => 'Network error: ' . $err];
-    }
-
+    if ($err) return ['_error' => $err];
     $data = json_decode($raw, true);
-    if (!$data) {
-        return ['success' => false, 'error' => 'Invalid response from QUALI-D API (HTTP ' . $code . ')'];
+    return ($data !== null) ? $data : ['_http_error' => $code];
+}
+
+// ---------------------------------------------------------------------------
+// QUALI-D Main API — Authentication
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1: Login with phone + password + Cloudflare Turnstile token.
+ * Country code is hardcoded to "2" (Egypt only).
+ *
+ * Returns one of:
+ *   ['success'=>true, 'totp_required'=>true, 'temp_token'=>'...']
+ *   ['success'=>true, 'token'=>'...', 'name'=>'...', 'company_name'=>'...']
+ *   ['success'=>false, 'error'=>'...']
+ */
+function qualid_login($phone, $password, $turnstile_token) {
+    $data = qualid_curl_post(QUALID_MAIN_API . '/login', [
+        'country_code'          => '2',
+        'phone'                 => $phone,
+        'password'              => $password,
+        'platform'              => 'web',
+        'device_fingerprint'    => 'freepbx_module',
+        'device_name'           => 'FreePBX QUALI-D Module',
+        'cf_turnstile_response' => $turnstile_token,
+    ]);
+
+    if (isset($data['_error'])) {
+        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
     }
     if (!(isset($data['success']) ? $data['success'] : false)) {
-        return ['success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Unknown API error'];
+        $msg = isset($data['message']) ? $data['message'] : (isset($data['error']) ? $data['error'] : 'Login failed');
+        return ['success' => false, 'error' => $msg];
     }
-
-    return ['success' => true, 'data' => $data];
+    return $data;
 }
 
 /**
- * Fetch list of agents for this company from QUALI-D API
+ * Step 2: Verify TOTP code (only needed when totp_required was true).
+ * Returns: ['success'=>true, 'token'=>'...', 'name'=>'...', 'company_name'=>'...']
+ *       or ['success'=>false, 'error'=>'...']
  */
-function qualid_get_agents($api_key) {
-    $ch = curl_init(QUALID_API_BASE . '/api/agents');
+function qualid_verify_totp($temp_token, $code) {
+    $data = qualid_curl_post(QUALID_MAIN_API . '/login/verify-totp', [
+        'temp_token'          => $temp_token,
+        'code'                => $code,
+        'platform'            => 'web',
+        'device_fingerprint'  => 'freepbx_module',
+        'device_name'         => 'FreePBX QUALI-D Module',
+    ]);
+
+    if (isset($data['_error'])) {
+        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
+    }
+    if (!(isset($data['success']) ? $data['success'] : false)) {
+        $msg = isset($data['message']) ? $data['message'] : 'TOTP verification failed';
+        return ['success' => false, 'error' => $msg];
+    }
+    return $data;
+}
+
+// ---------------------------------------------------------------------------
+// QUALI-D Main API — Agents
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all agents for the account (agent_role_id=1 hardcoded).
+ * Returns a plain array of agent objects.
+ */
+function qualid_fetch_agents($token) {
+    $ch = curl_init(QUALID_MAIN_API . '/agents/list');
     curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode(['agent_role_id' => 1]),
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
-            'X-PBX-API-Key: ' . $api_key,
+            'Authorization: Bearer ' . $token,
         ],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 10,
@@ -122,32 +171,50 @@ function qualid_get_agents($api_key) {
 
     if ($err || !$raw) return [];
     $data = json_decode($raw, true);
+    if (!is_array($data)) return [];
+    // Response is a direct JSON array (not wrapped in success/agents)
+    if (isset($data[0])) return $data;
     return isset($data['agents']) ? $data['agents'] : [];
 }
 
+// ---------------------------------------------------------------------------
+// QUALI-D Relay Server — Provisioning
+// ---------------------------------------------------------------------------
+
 /**
- * Provision a SIP account for a specific agent
+ * Provision the FreePBX SIP trunk via the relay server.
+ * Passes the bearer token as identity (relay derives company_id from it).
  */
-function qualid_provision_agent($api_key, $agent_id, $agent_name) {
-    $payload = json_encode([
-        'api_key'    => $api_key,
-        'agent_id'   => $agent_id,
-        'agent_name' => $agent_name,
+function qualid_provision_trunk($token) {
+    $data = qualid_curl_post(QUALID_RELAY_URL . '/api/pbx/provision', [
+        'bearer_token' => $token,
+        'pbx_label'    => gethostname(),
     ]);
 
-    $ch = curl_init(QUALID_API_BASE . '/api/agent/sip-credentials');
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_SSL_VERIFYPEER => true,
-    ]);
-    $raw = curl_exec($ch);
-    curl_close($ch);
+    if (isset($data['_error'])) {
+        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
+    }
+    if (!(isset($data['success']) ? $data['success'] : false)) {
+        return ['success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Trunk provisioning failed'];
+    }
+    return ['success' => true, 'data' => $data];
+}
 
-    $data = json_decode($raw, true);
+/**
+ * Provision SIP credentials for a specific agent.
+ * The relay server uses agent_code as SIP username and password.
+ */
+function qualid_provision_agent($token, $agent_id, $agent_name, $agent_code) {
+    $data = qualid_curl_post(QUALID_RELAY_URL . '/api/agent/sip-credentials', [
+        'bearer_token' => $token,
+        'agent_id'     => (string) $agent_id,
+        'agent_name'   => $agent_name,
+        'agent_code'   => $agent_code,
+    ]);
+
+    if (isset($data['_error'])) {
+        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
+    }
     return $data ? $data : ['success' => false, 'error' => 'No response'];
 }
 
@@ -155,25 +222,19 @@ function qualid_provision_agent($api_key, $agent_id, $agent_name) {
 // Asterisk config generation
 // ---------------------------------------------------------------------------
 
-/**
- * Write pjsip trunk config and dialplan for remote agents
- * Called after successful provision
- */
 function qualid_write_asterisk_config($config) {
     qualid_write_pjsip($config);
     qualid_write_dialplan($config);
-
-    // Tell FreePBX a reload is needed
     needreload();
 }
 
 function qualid_write_pjsip($cfg) {
-    $sip_domain  = $cfg['sip_domain'];
-    $trunk_user  = $cfg['trunk_user'];
-    $trunk_pass  = $cfg['trunk_pass'];
-    $cloud_srv   = QUALID_CLOUD_SERVER;
-    $cloud_port  = QUALID_CLOUD_PORT;
-    $trunk_name  = QUALID_TRUNK_NAME;
+    $sip_domain = $cfg['sip_domain'];
+    $trunk_user = $cfg['trunk_user'];
+    $trunk_pass = $cfg['trunk_pass'];
+    $cloud_srv  = QUALID_CLOUD_SERVER;
+    $cloud_port = QUALID_CLOUD_PORT;
+    $trunk_name = QUALID_TRUNK_NAME;
 
     $conf = <<<CONF
 ; =============================================================================
@@ -225,8 +286,6 @@ CONF;
 
     $path = '/etc/asterisk/pjsip_qualid.conf';
     file_put_contents($path, $conf);
-
-    // Include in pjsip_custom_post.conf (safe custom file — not overwritten by FreePBX)
     qualid_ensure_include('/etc/asterisk/pjsip_custom_post.conf', 'pjsip_qualid.conf');
 }
 
@@ -241,15 +300,11 @@ function qualid_write_dialplan($cfg) {
 ; Auto-generated. DO NOT EDIT manually.
 ; =============================================================================
 
-; Inbound context — calls arriving from the QUALI-D cloud to this PBX
 [{$trunk_name}-inbound]
 exten => _.,1,NoOp(QUALI-D Remote Agent inbound call from \${CALLERID(all)})
  same => n,Set(CALLERID(name)=\${CALLERID(name)})
  same => n,Goto(from-trunk,\${EXTEN},1)
 
-; Remote agent routing context
-; Add this context to your ring groups / queues when the target agent is remote:
-;   DIAL(PJSIP/agent_42@{$trunk_name}_endpoint)
 [{$context}]
 exten => _agent_.,1,NoOp(Routing call to remote agent \${EXTEN})
  same => n,Dial(PJSIP/\${EXTEN}@{$sip_domain},{$trunk_name}_endpoint,60,rU)
@@ -258,27 +313,18 @@ CONF;
 
     $path = '/etc/asterisk/extensions_qualid.conf';
     file_put_contents($path, $conf);
-
-    // Include in extensions_custom.conf if not already there
     qualid_ensure_include('/etc/asterisk/extensions_custom.conf', 'extensions_qualid.conf');
 }
 
-/**
- * Ensure an #include line exists in a target Asterisk config file
- */
 function qualid_ensure_include($target_file, $include_file) {
     $include_line = '#include ' . $include_file;
     if (!file_exists($target_file)) return;
-
     $contents = file_get_contents($target_file);
     if (strpos($contents, $include_file) === false) {
         file_put_contents($target_file, $contents . "\n" . $include_line . "\n");
     }
 }
 
-/**
- * Remove QUALI-D configs and #include lines on uninstall
- */
 function qualid_remove_asterisk_config() {
     $files = [
         '/etc/asterisk/pjsip_qualid.conf',
@@ -287,8 +333,6 @@ function qualid_remove_asterisk_config() {
     foreach ($files as $f) {
         if (file_exists($f)) unlink($f);
     }
-
-    // Remove include lines
     foreach (['/etc/asterisk/pjsip_custom_post.conf', '/etc/asterisk/extensions_custom.conf'] as $f) {
         if (!file_exists($f)) continue;
         $lines = file($f, FILE_IGNORE_NEW_LINES);
@@ -297,7 +341,6 @@ function qualid_remove_asterisk_config() {
         });
         file_put_contents($f, implode("\n", $lines) . "\n");
     }
-
     needreload();
 }
 
@@ -305,19 +348,11 @@ function qualid_remove_asterisk_config() {
 // Utility
 // ---------------------------------------------------------------------------
 
-function qualid_mask_key($key) {
-    if (strlen($key) < 8) return '••••••••';
-    return substr($key, 0, 4) . str_repeat('•', strlen($key) - 8) . substr($key, -4);
-}
-
 function qualid_connection_status() {
     $connected = qualid_get('connected', '0') === '1';
     if (!$connected) return ['status' => 'disconnected', 'label' => 'Not Connected', 'class' => 'danger'];
-
-    // Verify connection is still valid by checking trunk file exists
     if (!file_exists('/etc/asterisk/pjsip_qualid.conf')) {
         return ['status' => 'warning', 'label' => 'Config Missing', 'class' => 'warning'];
     }
-
     return ['status' => 'connected', 'label' => 'Connected', 'class' => 'success'];
 }

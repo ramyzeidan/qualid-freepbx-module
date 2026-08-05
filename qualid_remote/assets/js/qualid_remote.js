@@ -8,6 +8,14 @@ var QualidRemote = (function ($) {
 
     var BASE_URL = window.location.pathname + '?display=qualid_remote&qual_ajax=1';
 
+    // Turnstile token — set by the Cloudflare widget callback
+    var turnstileToken = '';
+
+    // Global callback registered with the Turnstile widget via data-callback attribute
+    window.qualidTurnstileCallback = function (token) {
+        turnstileToken = token;
+    };
+
     // -------------------------------------------------------------------------
     // UI helpers
     // -------------------------------------------------------------------------
@@ -36,12 +44,6 @@ var QualidRemote = (function ($) {
         $btn.html($btn.data('orig-html') || $btn.text()).prop('disabled', false);
     }
 
-    function animateIn($el) {
-        $el.css({ opacity: 0, transform: 'translateY(10px)' })
-           .animate({ opacity: 1 }, 300)
-           .css('transform', 'translateY(0)');
-    }
-
     function copyToClipboard(text, $btn) {
         navigator.clipboard.writeText(text).then(function () {
             var orig = $btn.html();
@@ -51,50 +53,125 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
-    // Connect / Provision
+    // Step 1: Login with phone + password + Turnstile
     // -------------------------------------------------------------------------
 
     function handleConnect() {
-        var $btn = $('#qualid-connect-btn');
-        var apiKey = $('#qualid-api-key').val().trim();
+        var $btn     = $('#qualid-connect-btn');
+        var phone    = $('#qualid-phone').val().trim();
+        var password = $('#qualid-password').val().trim();
 
         clearAlert('#qualid-connect-alert');
 
-        if (!apiKey) {
-            showAlert('#qualid-connect-alert', 'error', 'Please enter your QUALI-D API key.');
+        if (!phone) {
+            showAlert('#qualid-connect-alert', 'error', 'Please enter your phone number.');
+            return;
+        }
+        if (!password) {
+            showAlert('#qualid-connect-alert', 'error', 'Please enter your password.');
+            return;
+        }
+        if (!turnstileToken) {
+            showAlert('#qualid-connect-alert', 'error', 'Please complete the security check.');
             return;
         }
 
-        setButtonLoading($btn, 'Connecting…');
+        setButtonLoading($btn, 'Logging in\u2026');
 
         $.ajax({
-            url: BASE_URL,
-            method: 'POST',
-            data: { ajax_action: 'provision', api_key: apiKey },
+            url:      BASE_URL,
+            method:   'POST',
+            data: {
+                ajax_action:     'login',
+                phone:           phone,
+                password:        password,
+                turnstile_token: turnstileToken,
+            },
             dataType: 'json',
         }).done(function (res) {
-            if (res.success) {
-                showAlert('#qualid-connect-alert', 'success', 'Connected successfully! Asterisk configs have been written.');
-                setTimeout(function () { window.location.reload(); }, 1200);
-            } else {
-                showAlert('#qualid-connect-alert', 'error', res.error || 'Connection failed. Check your API key.');
+            if (!res.success) {
+                showAlert('#qualid-connect-alert', 'error', res.error || 'Login failed. Check your credentials.');
                 resetButton($btn);
+                // Reset Turnstile so user can try again
+                if (window.turnstile) { window.turnstile.reset(); }
+                turnstileToken = '';
+                return;
             }
+
+            if (res.totp_required) {
+                // Switch to TOTP step
+                $('#qualid-temp-token').val(res.temp_token || '');
+                $('#qualid-step-login').hide();
+                $('#qualid-step-totp').show();
+                $('#qualid-totp-code').val('').focus();
+                resetButton($btn);
+                return;
+            }
+
+            // No TOTP — trunk provisioned, reload
+            showAlert('#qualid-connect-alert', 'success', 'Connected! Configuring Asterisk\u2026');
+            setTimeout(function () { window.location.reload(); }, 1200);
+
         }).fail(function () {
-            showAlert('#qualid-connect-alert', 'error', 'Network error — could not reach the QUALI-D API.');
+            showAlert('#qualid-connect-alert', 'error', 'Network error \u2014 could not reach the QUALI-D API.');
             resetButton($btn);
         });
     }
 
+    // -------------------------------------------------------------------------
+    // Step 2: TOTP verification
+    // -------------------------------------------------------------------------
+
+    function handleVerifyTotp() {
+        var $btn       = $('#qualid-totp-verify-btn');
+        var temp_token = $('#qualid-temp-token').val();
+        var code       = $('#qualid-totp-code').val().trim();
+
+        clearAlert('#qualid-totp-alert');
+
+        if (!code || code.length < 6) {
+            showAlert('#qualid-totp-alert', 'error', 'Enter the 6-digit code from your authenticator app.');
+            return;
+        }
+
+        setButtonLoading($btn, 'Verifying\u2026');
+
+        $.ajax({
+            url:    BASE_URL,
+            method: 'POST',
+            data: {
+                ajax_action: 'verify_totp',
+                temp_token:  temp_token,
+                code:        code,
+            },
+            dataType: 'json',
+        }).done(function (res) {
+            if (!res.success) {
+                showAlert('#qualid-totp-alert', 'error', res.error || 'Invalid code. Please try again.');
+                resetButton($btn);
+                return;
+            }
+            showAlert('#qualid-totp-alert', 'success', 'Verified! Configuring Asterisk\u2026');
+            setTimeout(function () { window.location.reload(); }, 1200);
+        }).fail(function () {
+            showAlert('#qualid-totp-alert', 'error', 'Network error.');
+            resetButton($btn);
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Disconnect
+    // -------------------------------------------------------------------------
+
     function handleDisconnect() {
         if (!confirm('This will remove the QUALI-D SIP trunk and dialplan from Asterisk. Are you sure?')) return;
         var $btn = $('#qualid-disconnect-btn');
-        setButtonLoading($btn, 'Disconnecting…');
+        setButtonLoading($btn, 'Disconnecting\u2026');
 
         $.ajax({
-            url: BASE_URL,
+            url:    BASE_URL,
             method: 'POST',
-            data: { ajax_action: 'disconnect' },
+            data:   { ajax_action: 'disconnect' },
             dataType: 'json',
         }).done(function (res) {
             if (res.success) {
@@ -116,28 +193,28 @@ var QualidRemote = (function ($) {
     function loadAgents() {
         var $container = $('#qualid-agents-body');
         $container.html(
-            '<tr><td colspan="5" class="text-center" style="padding:30px;color:#8a9db5;">' +
-            '<span class="qualid-spinner dark"></span> Loading agents…</td></tr>'
+            '<tr><td colspan="4" class="text-center" style="padding:30px;color:#8a9db5;">' +
+            '<span class="qualid-spinner dark"></span> Loading agents\u2026</td></tr>'
         );
 
         $.ajax({
-            url: BASE_URL,
+            url:    BASE_URL,
             method: 'GET',
-            data: { ajax_action: 'get_agents' },
+            data:   { ajax_action: 'get_agents' },
             dataType: 'json',
         }).done(function (res) {
             if (!res.success || !res.agents || res.agents.length === 0) {
                 $container.html(
-                    '<tr><td colspan="5">' +
-                    '<div class="qualid-empty"><div class="empty-icon">👤</div>' +
-                    '<p>No agents found. Add agents in the QUALI-D dashboard first.</p></div>' +
+                    '<tr><td colspan="4">' +
+                    '<div class="qualid-empty"><div class="empty-icon">\uD83D\uDC64</div>' +
+                    '<p>No agents found in your QUALI-D account.</p></div>' +
                     '</td></tr>'
                 );
                 return;
             }
             renderAgents(res.agents);
         }).fail(function () {
-            $container.html('<tr><td colspan="5"><div class="qualid-alert qualid-alert-error">' +
+            $container.html('<tr><td colspan="4"><div class="qualid-alert qualid-alert-error">' +
                 '<i class="fa fa-exclamation-circle"></i> Failed to load agents.</div></td></tr>');
         });
     }
@@ -147,45 +224,49 @@ var QualidRemote = (function ($) {
         $container.empty();
 
         agents.forEach(function (agent) {
-            var regBadge = agent.sip_username
-                ? (agent.registered
-                    ? '<span class="reg-badge online"><span class="dot"></span>Online</span>'
-                    : '<span class="reg-badge provisioned"><span class="dot"></span>Provisioned</span>')
+            var isProvisioned = !!agent.sip_username;
+            var rowStyle      = agent.active ? '' : ' style="opacity:0.55;"';
+
+            var statusBadge = isProvisioned
+                ? '<span class="reg-badge provisioned"><span class="dot"></span>Provisioned</span>'
                 : '<span class="reg-badge offline"><span class="dot"></span>Not provisioned</span>';
 
-            var sipCell = agent.sip_username
-                ? '<span class="agent-sip-cell">' + escHtml(agent.sip_username) + '</span>'
-                : '<span style="color:#c0ccd8;font-size:12px;">—</span>';
-
-            var actions = agent.sip_username
-                ? '<button class="qualid-btn qualid-btn-outline qualid-btn-sm" onclick="QualidRemote.copyAgentSip(\'' + escHtml(agent.sip_username) + '\', this)">' +
+            var actions = isProvisioned
+                ? '<button class="qualid-btn qualid-btn-outline qualid-btn-sm" ' +
+                  'onclick="QualidRemote.copyAgentSip(\'' + escHtml(agent.sip_username) + '\',this)">' +
                   '<i class="fa fa-copy"></i> Copy SIP</button>'
-                : '<button class="qualid-btn qualid-btn-primary qualid-btn-sm" onclick="QualidRemote.provisionAgent(\'' + escHtml(agent.id) + '\',\'' + escHtml(agent.name) + '\',this)">' +
+                : '<button class="qualid-btn qualid-btn-primary qualid-btn-sm" ' +
+                  'onclick="QualidRemote.provisionAgent(\'' + escHtml(String(agent.id)) + '\',\'' +
+                  escHtml(agent.name) + '\',\'' + escHtml(agent.agent_code) + '\',this)">' +
                   '<i class="fa fa-plug"></i> Provision</button>';
 
+            var nameSuffix = agent.active ? '' : ' <span style="font-size:10px;color:#c0ccd8;">(inactive)</span>';
+
             var $row = $(
-                '<tr>' +
-                '<td class="agent-name-cell">' + escHtml(agent.name) + '</td>' +
-                '<td style="color:#8a9db5;font-size:12px;">' + escHtml(agent.extension || '—') + '</td>' +
-                '<td>' + sipCell + '</td>' +
-                '<td>' + regBadge + '</td>' +
+                '<tr' + rowStyle + '>' +
+                '<td class="agent-name-cell">' + escHtml(agent.name) + nameSuffix + '</td>' +
+                '<td style="font-family:monospace;font-size:12px;color:#5a6a80;">' + escHtml(agent.agent_code) + '</td>' +
+                '<td>' + statusBadge + '</td>' +
                 '<td>' + actions + '</td>' +
                 '</tr>'
             );
             $container.append($row);
         });
-
-        animateIn($container);
     }
 
-    function provisionAgent(agentId, agentName, btn) {
+    function provisionAgent(agentId, agentName, agentCode, btn) {
         var $btn = $(btn);
-        setButtonLoading($btn, 'Provisioning…');
+        setButtonLoading($btn, 'Provisioning\u2026');
 
         $.ajax({
-            url: BASE_URL,
+            url:    BASE_URL,
             method: 'POST',
-            data: { ajax_action: 'provision_agent', agent_id: agentId, agent_name: agentName },
+            data: {
+                ajax_action: 'provision_agent',
+                agent_id:    agentId,
+                agent_name:  agentName,
+                agent_code:  agentCode,
+            },
             dataType: 'json',
         }).done(function (res) {
             if (res.success) {
@@ -210,18 +291,17 @@ var QualidRemote = (function ($) {
 
     function testConnection() {
         var $btn = $('#qualid-test-btn');
-        setButtonLoading($btn, 'Testing…');
+        setButtonLoading($btn, 'Testing\u2026');
         clearAlert('#qualid-test-alert');
 
         $.ajax({
-            url: BASE_URL,
+            url:    BASE_URL,
             method: 'POST',
-            data: { ajax_action: 'test_connection' },
+            data:   { ajax_action: 'test_connection' },
             dataType: 'json',
         }).done(function (res) {
             if (res.success) {
-                showAlert('#qualid-test-alert', 'success',
-                    '✓ Connection OK — SIP domain reachable. Trunk registered: ' + (res.registered ? 'Yes' : 'Pending'));
+                showAlert('#qualid-test-alert', 'success', '\u2713 Connection OK \u2014 QUALI-D API reachable.');
             } else {
                 showAlert('#qualid-test-alert', 'error', 'Test failed: ' + (res.error || 'Unknown'));
             }
@@ -233,12 +313,12 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
-    // API key visibility toggle
+    // Password visibility toggle
     // -------------------------------------------------------------------------
 
-    function toggleApiKeyVisibility() {
-        var $input = $('#qualid-api-key');
-        var $icon = $('#qualid-toggle-key i');
+    function togglePasswordVisibility() {
+        var $input = $('#qualid-password');
+        var $icon  = $('#qualid-toggle-pass i');
         if ($input.attr('type') === 'password') {
             $input.attr('type', 'text');
             $icon.removeClass('fa-eye').addClass('fa-eye-slash');
@@ -254,10 +334,11 @@ var QualidRemote = (function ($) {
 
     function escHtml(str) {
         return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+            .replace(/&/g,  '&amp;')
+            .replace(/</g,  '&lt;')
+            .replace(/>/g,  '&gt;')
+            .replace(/"/g,  '&quot;')
+            .replace(/'/g,  '&#39;');
     }
 
     // -------------------------------------------------------------------------
@@ -265,19 +346,25 @@ var QualidRemote = (function ($) {
     // -------------------------------------------------------------------------
 
     function init() {
-        // Connect button
+        // Login
         $('#qualid-connect-btn').on('click', handleConnect);
+        $('#qualid-phone').on('keydown',    function (e) { if (e.key === 'Enter') handleConnect(); });
+        $('#qualid-password').on('keydown', function (e) { if (e.key === 'Enter') handleConnect(); });
 
-        // Enter key in API field
-        $('#qualid-api-key').on('keydown', function (e) {
-            if (e.key === 'Enter') handleConnect();
+        // TOTP
+        $('#qualid-totp-verify-btn').on('click', handleVerifyTotp);
+        $('#qualid-totp-code').on('keydown', function (e) { if (e.key === 'Enter') handleVerifyTotp(); });
+        $('#qualid-totp-back-btn').on('click', function () {
+            $('#qualid-step-totp').hide();
+            $('#qualid-step-login').show();
+            clearAlert('#qualid-totp-alert');
         });
 
         // Disconnect
         $('#qualid-disconnect-btn').on('click', handleDisconnect);
 
-        // Toggle API key visibility
-        $('#qualid-toggle-key').on('click', toggleApiKeyVisibility);
+        // Password visibility
+        $('#qualid-toggle-pass').on('click', togglePasswordVisibility);
 
         // Test connection
         $('#qualid-test-btn').on('click', testConnection);
@@ -285,23 +372,21 @@ var QualidRemote = (function ($) {
         // Refresh agents
         $('#qualid-refresh-agents').on('click', loadAgents);
 
-        // Auto-load agents if connected
-        if ($('#qualid-agents-section').length) {
+        // Auto-load agents when connected
+        if ($('#qualid-agents-body').length) {
             loadAgents();
         }
 
         // Copy SIP domain
         $('#qualid-copy-domain').on('click', function () {
-            var domain = $(this).data('value');
-            copyToClipboard(domain, $(this));
+            copyToClipboard($(this).data('value'), $(this));
         });
     }
 
-    // Public API
     return {
-        init: init,
+        init:           init,
         provisionAgent: provisionAgent,
-        copyAgentSip: copyAgentSip,
+        copyAgentSip:   copyAgentSip,
     };
 
 }(jQuery));
