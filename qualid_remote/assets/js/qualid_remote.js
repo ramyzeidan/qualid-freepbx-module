@@ -6,7 +6,7 @@
 var QualidRemote = (function ($) {
     'use strict';
 
-    var BASE_URL = window.location.pathname + '?display=qualid_remote&action=ajax';
+    var BASE_URL = window.location.pathname + '?display=qualid_remote&qual_ajax=1';
 
     // -------------------------------------------------------------------------
     // UI helpers

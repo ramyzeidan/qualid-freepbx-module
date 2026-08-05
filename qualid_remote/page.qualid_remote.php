@@ -14,7 +14,7 @@ echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
 // ---------------------------------------------------------------------------
 // Handle AJAX requests
 // ---------------------------------------------------------------------------
-if (isset($_GET['action']) && $_GET['action'] === 'ajax') {
+if (isset($_GET['qual_ajax'])) {
     header('Content-Type: application/json');
 
     $ajax_action = isset($_POST['ajax_action']) ? $_POST['ajax_action'] : (isset($_GET['ajax_action']) ? $_GET['ajax_action'] : '');
