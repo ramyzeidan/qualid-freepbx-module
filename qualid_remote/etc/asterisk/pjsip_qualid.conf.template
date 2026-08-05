@@ -4,16 +4,19 @@
 ; and written to /etc/asterisk/pjsip_qualid.conf
 ; Variables: {{TRUNK_USER}}, {{TRUNK_PASS}}, {{CLOUD_SERVER}}, {{CLOUD_IP}}
 ;
-; Transport: SIP/TCP on port 443 — bypasses ISP SIP port blocking (e.g. Egypt).
-; Port 443 is always open as HTTPS. No outbound registration needed — Kamailio
-; authenticates via proxy auth on each INVITE.
+; Transport: SIP/TLS on port 443 — encrypts SIP payload so Egyptian ISP DPI
+; cannot detect INVITE keyword. Plain TCP on 443 was still blocked by content
+; inspection; TLS makes traffic look like HTTPS to DPI devices.
+; verify_server=no / verify_client=no — Kamailio uses a self-signed cert.
 ; =============================================================================
 
-; TCP transport for outbound SIP to QUALI-D cloud relay
-[QualidRemote_tcp_transport]
+; TLS transport for outbound SIP to QUALI-D cloud relay
+[QualidRemote_tls_transport]
 type=transport
-protocol=tcp
+protocol=tls
 bind=0.0.0.0
+verify_server=no
+verify_client=no
 
 [QualidRemote_auth]
 type=auth
@@ -23,11 +26,11 @@ password={{TRUNK_PASS}}
 
 [QualidRemote_aor]
 type=aor
-contact=sip:{{CLOUD_IP}}:443;transport=tcp
+contact=sip:{{CLOUD_IP}}:443;transport=tls
 
 [QualidRemote_endpoint]
 type=endpoint
-transport=QualidRemote_tcp_transport
+transport=QualidRemote_tls_transport
 outbound_auth=QualidRemote_auth
 aors=QualidRemote_aor
 context=QualidRemote-inbound

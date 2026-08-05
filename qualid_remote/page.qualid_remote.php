@@ -230,7 +230,7 @@ $is_connected = $status['status'] === 'connected';
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.10</span>
+        <span class="qualid-version">v1.0.15</span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>
@@ -423,7 +423,7 @@ $is_connected = $status['status'] === 'connected';
                     <div>
                         <strong>Auto-generated files:</strong>
                         <ul style="margin:8px 0 0 0;padding-left:18px;font-size:12px;">
-                            <li><code>/etc/asterisk/pjsip_qualid.conf</code> — WSS trunk</li>
+                            <li><code>/etc/asterisk/pjsip_qualid.conf</code> — SIP/TLS trunk (port 443)</li>
                             <li><code>/etc/asterisk/extensions_qualid.conf</code> — dialplan</li>
                         </ul>
                         <div style="margin-top:10px;font-size:12px;">

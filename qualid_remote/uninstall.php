@@ -6,14 +6,10 @@
 
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
-// Remove all stored config
-$keys = [
-    'qualid_api_key', 'qualid_company_id', 'qualid_sip_domain',
-    'qualid_trunk_user', 'qualid_trunk_pass', 'qualid_turn_server',
-    'qualid_connected', 'qualid_connected_at', 'qualid_last_error',
-];
-foreach ($keys as $key) {
-    delConfig($key);
+// Remove JSON config file (module uses file-based storage, not FreePBX DB)
+$cfg_path = dirname(__FILE__) . '/config.json';
+if (file_exists($cfg_path)) {
+    unlink($cfg_path);
 }
 
 // Remove Asterisk config files and #include lines

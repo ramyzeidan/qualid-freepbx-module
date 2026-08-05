@@ -3,7 +3,7 @@
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
     <name>QUALI-D Remote Agent</name>
-    <version>1.0.14</version>
+    <version>1.0.15</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
@@ -16,7 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.9: Fix AJAX response contaminated by FreePBX HTML banners (ob_end_clean before JSON output)
+    <changelog>1.0.15: Switch FreePBX→Kamailio trunk to SIP/TLS on port 443; add upgrade auto-regen of pjsip config; fix uninstall JSON cleanup
+1.0.9: Fix AJAX response contaminated by FreePBX HTML banners (ob_end_clean before JSON output)
 1.0.8: Replace API key with phone+password login, Turnstile, TOTP, agent_code as SIP credentials
 1.0.7: Use pjsip_custom_post.conf for PJSIP include (survives FreePBX reload)
 1.0.6: Fix AJAX parameter conflict with FreePBX reserved action parameter

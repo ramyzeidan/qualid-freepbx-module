@@ -237,9 +237,10 @@ function qualid_write_pjsip($cfg) {
     $trunk_port = QUALID_CLOUD_PORT;   // 443 — SIP/TCP on port 443 bypasses Egyptian ISP blocking
     $trunk_name = QUALID_TRUNK_NAME;
 
-    // FreePBX→Kamailio uses SIP/TCP on port 443 directly to the VPS IP.
-    // Port 443 (HTTPS) is never blocked by ISPs, unlike UDP/TCP 5060.
-    // Agents still connect via WSS through Cloudflare on their own path.
+    // FreePBX→Kamailio uses SIP/TLS on port 443 directly to the VPS IP.
+    // Plain TCP on port 443 is blocked by Egyptian ISP DPI (detects INVITE keyword).
+    // TLS encrypts the payload so DPI sees only an HTTPS-looking stream.
+    // verify_server=no / verify_client=no because Kamailio uses a self-signed cert.
     $conf = <<<CONF
 ; =============================================================================
 ; QUALI-D Remote Agent — PJSIP Trunk Configuration
@@ -247,10 +248,12 @@ function qualid_write_pjsip($cfg) {
 ; To reconfigure, use the QUALI-D Remote Agent admin page.
 ; =============================================================================
 
-[{$trunk_name}_tcp_transport]
+[{$trunk_name}_tls_transport]
 type=transport
-protocol=tcp
+protocol=tls
 bind=0.0.0.0
+verify_server=no
+verify_client=no
 
 [{$trunk_name}_auth]
 type=auth
@@ -260,11 +263,11 @@ password={$trunk_pass}
 
 [{$trunk_name}_aor]
 type=aor
-contact=sip:{$cloud_ip}:{$trunk_port};transport=tcp
+contact=sip:{$cloud_ip}:{$trunk_port};transport=tls
 
 [{$trunk_name}_endpoint]
 type=endpoint
-transport={$trunk_name}_tcp_transport
+transport={$trunk_name}_tls_transport
 outbound_auth={$trunk_name}_auth
 aors={$trunk_name}_aor
 context={$trunk_name}-inbound
