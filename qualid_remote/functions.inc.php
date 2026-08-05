@@ -257,13 +257,12 @@ password={$trunk_pass}
 
 [{$trunk_name}_aor]
 type=aor
-contact=sip:{$cloud_srv}:{$sip_port}
+contact=sip:{$cloud_ip}:{$sip_port}
 
 [{$trunk_name}_endpoint]
 type=endpoint
 transport=0.0.0.0-udp
 outbound_auth={$trunk_name}_auth
-outbound_proxy=sip:{$cloud_ip}:{$sip_port};lr
 aors={$trunk_name}_aor
 context={$trunk_name}-inbound
 disallow=all
