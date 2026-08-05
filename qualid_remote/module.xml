@@ -3,7 +3,7 @@
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
     <name>QUALI-D Remote Agent</name>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
@@ -16,7 +16,9 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.1: Update server URLs to production deployment
+    <changelog>1.0.3: Remove getConfig calls from install.php for PHP 5.6 compatibility
+1.0.2: Fix changelog format for FreePBX 15
+1.0.1: Update server URLs to production deployment
 1.0.0: Initial release — auto-provisioning, agent management, WSS trunk</changelog>
     <depends>
         <module>core</module>
