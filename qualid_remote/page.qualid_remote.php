@@ -230,7 +230,7 @@ $is_connected = $status['status'] === 'connected';
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.15</span>
+        <span class="qualid-version">v1.0.17</span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>
