@@ -8,14 +8,6 @@ var QualidRemote = (function ($) {
 
     var BASE_URL = window.location.pathname + '?display=qualid_remote&qual_ajax=1';
 
-    // Turnstile token — set by the Cloudflare widget callback
-    var turnstileToken = '';
-
-    // Global callback registered with the Turnstile widget via data-callback attribute
-    window.qualidTurnstileCallback = function (token) {
-        turnstileToken = token;
-    };
-
     // -------------------------------------------------------------------------
     // UI helpers
     // -------------------------------------------------------------------------
@@ -53,7 +45,7 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
-    // Step 1: Login with phone + password + Turnstile
+    // Step 1: Login with phone + password
     // -------------------------------------------------------------------------
 
     function handleConnect() {
@@ -71,10 +63,6 @@ var QualidRemote = (function ($) {
             showAlert('#qualid-connect-alert', 'error', 'Please enter your password.');
             return;
         }
-        if (!turnstileToken) {
-            showAlert('#qualid-connect-alert', 'error', 'Please complete the security check.');
-            return;
-        }
 
         setButtonLoading($btn, 'Logging in\u2026');
 
@@ -82,19 +70,15 @@ var QualidRemote = (function ($) {
             url:      BASE_URL,
             method:   'POST',
             data: {
-                ajax_action:     'login',
-                phone:           phone,
-                password:        password,
-                turnstile_token: turnstileToken,
+                ajax_action: 'login',
+                phone:       phone,
+                password:    password,
             },
             dataType: 'json',
         }).done(function (res) {
             if (!res.success) {
                 showAlert('#qualid-connect-alert', 'error', res.error || 'Login failed. Check your credentials.');
                 resetButton($btn);
-                // Reset Turnstile so user can try again
-                if (window.turnstile) { window.turnstile.reset(); }
-                turnstileToken = '';
                 return;
             }
 

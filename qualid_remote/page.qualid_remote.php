@@ -10,8 +10,8 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 $asset_path = 'modules/qualid_remote/assets';
 echo '<link rel="stylesheet" href="' . $asset_path . '/css/qualid_remote.css">';
 echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
-// Cloudflare Turnstile widget (needed for login)
-echo '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>';
+// No Turnstile — FreePBX admin is already behind FreePBX auth,
+// and the login endpoint uses platform=freepbx_module to skip Turnstile server-side.
 
 // ---------------------------------------------------------------------------
 // Internal helper — called after successful login/TOTP to provision trunk
@@ -57,22 +57,17 @@ if (isset($_GET['qual_ajax'])) {
 
     switch ($ajax_action) {
 
-        // -- Step 1: Login with phone + password + Turnstile -----------------
+        // -- Step 1: Login with phone + password -----------------------------
         case 'login':
-            $phone     = trim(isset($_POST['phone'])           ? $_POST['phone']           : '');
-            $password  = trim(isset($_POST['password'])        ? $_POST['password']        : '');
-            $turnstile = trim(isset($_POST['turnstile_token']) ? $_POST['turnstile_token'] : '');
+            $phone    = trim(isset($_POST['phone'])    ? $_POST['phone']    : '');
+            $password = trim(isset($_POST['password']) ? $_POST['password'] : '');
 
             if (!$phone || !$password) {
                 echo json_encode(['success' => false, 'error' => 'Phone and password are required.']);
                 exit;
             }
-            if (!$turnstile) {
-                echo json_encode(['success' => false, 'error' => 'Please complete the security check.']);
-                exit;
-            }
 
-            $result = qualid_login($phone, $password, $turnstile);
+            $result = qualid_login($phone, $password, '');
 
             if (!$result['success']) {
                 echo json_encode($result);
@@ -279,7 +274,7 @@ $is_connected = $status['status'] === 'connected';
 
                 <?php if (!$is_connected): ?>
 
-                <!-- Step 1: Phone + Password + Turnstile -->
+                <!-- Step 1: Phone + Password -->
                 <div id="qualid-step-login">
                     <p style="font-size:13px;color:#5a6a80;margin-bottom:16px;">
                         Login with your QUALI-D account to automatically configure the SIP trunk
@@ -316,14 +311,6 @@ $is_connected = $status['status'] === 'connected';
                                     style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#8a9db5;cursor:pointer;padding:0;">
                                 <i class="fa fa-eye"></i>
                             </button>
-                        </div>
-                    </div>
-
-                    <div style="margin-bottom:14px;">
-                        <div class="cf-turnstile"
-                             data-sitekey="0x4AAAAAAC_1sD05pRRxvRCk"
-                             data-callback="qualidTurnstileCallback"
-                             data-theme="light">
                         </div>
                     </div>
 
