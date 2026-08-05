@@ -6,12 +6,12 @@
 
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
-// Enqueue our assets
-$asset_path = 'modules/qualid_remote/assets';
-echo '<link rel="stylesheet" href="' . $asset_path . '/css/qualid_remote.css">';
-echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
-// No Turnstile — FreePBX admin is already behind FreePBX auth,
-// and the login endpoint uses platform=freepbx_module to skip Turnstile server-side.
+// Enqueue our assets — skipped for AJAX calls (pure JSON response)
+if (!isset($_GET['qual_ajax'])) {
+    $asset_path = 'modules/qualid_remote/assets';
+    echo '<link rel="stylesheet" href="' . $asset_path . '/css/qualid_remote.css">';
+    echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
+}
 
 // ---------------------------------------------------------------------------
 // Internal helper — called after successful login/TOTP to provision trunk
@@ -51,7 +51,11 @@ function qualid_complete_login($token, $user_name, $company_name) {
 // Handle AJAX requests
 // ---------------------------------------------------------------------------
 if (isset($_GET['qual_ajax'])) {
-    header('Content-Type: application/json');
+    // FreePBX has already buffered its own HTML (security banners, etc.) by the
+    // time page.php runs.  Wipe the entire output buffer so the response is
+    // pure JSON and jQuery's dataType:'json' can parse it.
+    while (ob_get_level()) { ob_end_clean(); }
+    header('Content-Type: application/json; charset=utf-8');
 
     $ajax_action = isset($_POST['ajax_action']) ? $_POST['ajax_action'] : (isset($_GET['ajax_action']) ? $_GET['ajax_action'] : '');
 
@@ -226,7 +230,7 @@ $is_connected = $status['status'] === 'connected';
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.8</span>
+        <span class="qualid-version">v1.0.9</span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>
