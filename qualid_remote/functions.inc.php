@@ -307,7 +307,7 @@ exten => _.,1,NoOp(QUALI-D Remote Agent inbound call from \${CALLERID(all)})
 
 [{$context}]
 exten => _agent_.,1,NoOp(Routing call to remote agent \${EXTEN})
- same => n,Dial(PJSIP/\${EXTEN}@{$sip_domain},{$trunk_name}_endpoint,60,rU)
+ same => n,Dial(PJSIP/\${EXTEN}%40{$sip_domain}@{$trunk_name}_endpoint,60,rU)
  same => n,Hangup()
 CONF;
 

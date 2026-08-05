@@ -230,7 +230,7 @@ $is_connected = $status['status'] === 'connected';
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.9</span>
+        <span class="qualid-version">v1.0.10</span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>
@@ -429,7 +429,7 @@ $is_connected = $status['status'] === 'connected';
                         <div style="margin-top:10px;font-size:12px;">
                             To route a call to a remote agent, use:<br>
                             <code style="background:rgba(26,127,255,0.08);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px;">
-                                DIAL(PJSIP/&lt;agent_code&gt;@<?= htmlspecialchars($cfg['sip_domain']) ?>,QualidRemote_endpoint,60)
+                                DIAL(PJSIP/&lt;agent_code&gt;%40<?= htmlspecialchars($cfg['sip_domain']) ?>@QualidRemote_endpoint,60)
                             </code>
                         </div>
                     </div>
