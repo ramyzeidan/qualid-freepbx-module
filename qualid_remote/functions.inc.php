@@ -226,8 +226,8 @@ CONF;
     $path = '/etc/asterisk/pjsip_qualid.conf';
     file_put_contents($path, $conf);
 
-    // Include in pjsip.conf if not already there
-    qualid_ensure_include('/etc/asterisk/pjsip.conf', 'pjsip_qualid.conf');
+    // Include in pjsip_custom_post.conf (safe custom file — not overwritten by FreePBX)
+    qualid_ensure_include('/etc/asterisk/pjsip_custom_post.conf', 'pjsip_qualid.conf');
 }
 
 function qualid_write_dialplan($cfg) {
@@ -289,7 +289,7 @@ function qualid_remove_asterisk_config() {
     }
 
     // Remove include lines
-    foreach (['/etc/asterisk/pjsip.conf', '/etc/asterisk/extensions_custom.conf'] as $f) {
+    foreach (['/etc/asterisk/pjsip_custom_post.conf', '/etc/asterisk/extensions_custom.conf'] as $f) {
         if (!file_exists($f)) continue;
         $lines = file($f, FILE_IGNORE_NEW_LINES);
         $lines = array_filter($lines, function($line) {
