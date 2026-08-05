@@ -16,16 +16,33 @@ define('QUALID_TRUNK_NAME',   'QualidRemote');
 define('QUALID_CONTEXT',      'qualid-remote-agents');
 
 // ---------------------------------------------------------------------------
-// Config storage (FreePBX kvstore)
+// Config storage (JSON file — no FreePBX API dependency)
 // ---------------------------------------------------------------------------
 
+function qualid_config_path() {
+    return dirname(__FILE__) . '/config.json';
+}
+
+function qualid_load_config() {
+    $path = qualid_config_path();
+    if (!file_exists($path)) { return []; }
+    $data = json_decode(file_get_contents($path), true);
+    return is_array($data) ? $data : [];
+}
+
+function qualid_save_config($cfg) {
+    file_put_contents(qualid_config_path(), json_encode($cfg));
+}
+
 function qualid_get($key, $default = null) {
-    $val = getConfig('qualid_' . $key);
-    return ($val !== false && $val !== null && $val !== '') ? $val : $default;
+    $cfg = qualid_load_config();
+    return isset($cfg[$key]) ? $cfg[$key] : $default;
 }
 
 function qualid_set($key, $value) {
-    setConfig('qualid_' . $key, $value);
+    $cfg = qualid_load_config();
+    $cfg[$key] = $value;
+    qualid_save_config($cfg);
 }
 
 function qualid_get_all() {
