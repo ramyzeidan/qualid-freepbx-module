@@ -429,14 +429,17 @@ function qualid_register_agi_secret($token, $agi_secret) {
  * Returns array of: [{extension, display_name, type, status}]
  */
 function qualid_get_local_extensions() {
-    global $db;
     $extensions = [];
 
-    // Query FreePBX core users table for extension list
-    $rows = $db->getAll(
-        "SELECT extension, name FROM users ORDER BY extension+0",
-        null, DB_FETCHMODE_ASSOC
-    );
+    // Query FreePBX core users table via PDO (avoids PEAR DB dependency)
+    try {
+        $pdo  = FreePBX::create()->Database;
+        $stmt = $pdo->prepare("SELECT extension, name FROM users ORDER BY extension+0");
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $rows = [];
+    }
     if (!is_array($rows)) $rows = [];
 
     // Get registered extensions from Asterisk CLI
@@ -487,16 +490,13 @@ function qualid_create_extension($extension, $display_name, $secret) {
         return ['success' => false, 'error' => 'Extension must be 2-6 digits'];
     }
 
-    global $db;
-    $existing = $db->getOne(
-        "SELECT extension FROM users WHERE extension = " . $db->quote($extension)
-    );
-    if ($existing) {
-        return ['success' => false, 'error' => 'Extension ' . $extension . ' already exists'];
-    }
-
     try {
         $fpbx = FreePBX::create();
+        $chk  = $fpbx->Database->prepare("SELECT extension FROM users WHERE extension = ?");
+        $chk->execute([$extension]);
+        if ($chk->fetchColumn()) {
+            return ['success' => false, 'error' => 'Extension ' . $extension . ' already exists'];
+        }
         $fpbx->Core->addUser($extension, $display_name, [
             'tech'   => 'pjsip',
             'secret' => $secret,
