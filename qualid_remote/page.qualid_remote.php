@@ -9,8 +9,9 @@ if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 // Enqueue our assets — skipped for AJAX calls (pure JSON response)
 if (!isset($_GET['qual_ajax'])) {
     $asset_path = 'modules/qualid_remote/assets';
+    $_js_ver    = @filemtime(__DIR__ . '/assets/js/qualid_remote.js') ?: time();
     echo '<link rel="stylesheet" href="' . $asset_path . '/css/qualid_remote.css">';
-    echo '<script src="' . $asset_path . '/js/qualid_remote.js"></script>';
+    echo '<script src="' . $asset_path . '/js/qualid_remote.js?v=' . $_js_ver . '"></script>';
 }
 
 // ---------------------------------------------------------------------------
@@ -319,10 +320,10 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
     </div>
     <div class="qualid-hero-badge">
         <span class="qualid-version"><?= htmlspecialchars($_module_ver) ?></span>
-        <button id="qualid-check-update-btn" title="Check for updates"
-                style="background:none;border:none;color:rgba(255,255,255,0.55);cursor:pointer;padding:0 4px;font-size:13px;line-height:1;"
+        <button id="qualid-check-update-btn"
+                style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.8);cursor:pointer;padding:2px 10px;font-size:11px;border-radius:10px;line-height:1.6;margin-left:4px;"
                 onclick="QualidRemote.checkForUpdate(this)">
-            <i class="fa fa-refresh"></i>
+            <i class="fa fa-refresh" style="margin-right:4px;"></i>Check For Updates
         </button>
         <span id="qualid-update-badge" style="display:none;margin-left:8px;">
             <button id="qualid-do-update-btn"

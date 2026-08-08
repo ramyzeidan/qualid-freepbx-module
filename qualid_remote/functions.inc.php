@@ -677,8 +677,12 @@ function qualid_check_github_update() {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if (!$response || $httpCode !== 200) {
+    if (!$response || ($httpCode !== 200 && $httpCode !== 404)) {
         return ['success' => false, 'error' => 'Could not reach GitHub (HTTP ' . $httpCode . ')'];
+    }
+    if ($httpCode === 404) {
+        return ['success' => true, 'update_available' => false, 'current_version' => $currentVersion,
+                'latest_version' => $currentVersion, 'message' => 'No releases published yet'];
     }
 
     $data = json_decode($response, true);
