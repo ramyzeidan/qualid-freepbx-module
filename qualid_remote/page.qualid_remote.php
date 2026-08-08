@@ -314,7 +314,7 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
         </span>
         <div class="qualid-hero-text">
             <h1>Quali-D Connect</h1>
-            <p>Cloud SIP relay — agents work from anywhere on port 443</p>
+            <p>Enterprise voice connectivity, powered by Quali-D Cloud</p>
         </div>
     </div>
     <div class="qualid-hero-badge">
