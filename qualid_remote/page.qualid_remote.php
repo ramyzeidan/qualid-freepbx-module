@@ -295,6 +295,10 @@ $cfg          = qualid_get_all();
 $status       = qualid_connection_status();
 $is_connected = $status['status'] === 'connected';
 
+// Read version dynamically from module.xml so the badge always matches
+$_xml          = @simplexml_load_file(QUALID_MODULE_DIR . '/module.xml');
+$_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
+
 ?>
 
 <!-- Hero Banner -->
@@ -314,7 +318,7 @@ $is_connected = $status['status'] === 'connected';
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.20</span>
+        <span class="qualid-version"><?= htmlspecialchars($_module_ver) ?></span>
         <span id="qualid-update-badge" style="display:none;margin-left:8px;">
             <button id="qualid-do-update-btn"
                     class="btn btn-xs btn-warning"
