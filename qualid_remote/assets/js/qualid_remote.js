@@ -1,5 +1,5 @@
 /* =============================================================================
-   QUALI-D Remote Agent — Admin Page JavaScript
+   Quali-D Connect — Admin Page JavaScript
    jQuery is available from FreePBX's admin panel
    ============================================================================= */
 

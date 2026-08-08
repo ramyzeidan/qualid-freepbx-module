@@ -25,7 +25,7 @@
 
 // Configuration is written by the FreePBX qualid_remote module at:
 //   /etc/asterisk/qualid_ivr.conf
-// Do NOT edit these values manually — reconnect via Admin → QUALI-D Remote Agent.
+// Do NOT edit these values manually — reconnect via Admin → Quali-D Connect.
 $_qconf = file_exists('/etc/asterisk/qualid_ivr.conf')
     ? (parse_ini_file('/etc/asterisk/qualid_ivr.conf') ?: [])
     : [];

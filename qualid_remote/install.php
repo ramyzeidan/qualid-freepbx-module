@@ -1,6 +1,6 @@
 <?php
 /**
- * QUALI-D Remote Agent — Module Install / Upgrade
+ * Quali-D Connect — Module Install / Upgrade
  * Runs automatically by FreePBX when the module is installed or upgraded.
  */
 
@@ -23,14 +23,14 @@ if (file_exists($cfg_path)) {
     if (is_array($cfg) && !empty($cfg['trunk_user']) && !empty($cfg['trunk_pass'])) {
         qualid_write_pjsip($cfg);
         qualid_write_dialplan($cfg);
-        out('QUALI-D Remote Agent: SIP trunk config regenerated with TLS transport (port 443).');
+        out('Quali-D Connect: SIP trunk config regenerated with TLS transport (port 443).');
     }
     // Upgrade path: re-deploy AGI script if already connected
     if (is_array($cfg) && !empty($cfg['agi_secret'])) {
         qualid_write_agi_files($cfg['agi_secret']);
-        out('QUALI-D Remote Agent: IVR AGI script deployed to /var/lib/asterisk/agi-bin/.');
+        out('Quali-D Connect: IVR AGI script deployed to /var/lib/asterisk/agi-bin/.');
     }
 }
 
-out('QUALI-D Remote Agent installed successfully.');
-out('Go to Admin → QUALI-D Remote Agent to configure your connection.');
+out('Quali-D Connect installed successfully.');
+out('Go to Admin → Quali-D Connect to configure your connection.');

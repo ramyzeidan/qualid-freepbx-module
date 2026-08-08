@@ -1,7 +1,7 @@
 <?php
 /**
- * QUALI-D Remote Agent — Admin Page
- * Rendered by FreePBX module framework under Admin → QUALI-D Remote Agent
+ * Quali-D Connect — Admin Page
+ * Rendered by FreePBX module framework under Admin → Quali-D Connect
  */
 
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
@@ -289,12 +289,12 @@ $is_connected = $status['status'] === 'connected';
             QUALI-D
         </span>
         <div class="qualid-hero-text">
-            <h1>Remote Agent</h1>
+            <h1>Quali-D Connect</h1>
             <p>Cloud SIP relay — agents work from anywhere on port 443</p>
         </div>
     </div>
     <div class="qualid-hero-badge">
-        <span class="qualid-version">v1.0.17</span>
+        <span class="qualid-version">v1.0.20</span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>
@@ -671,11 +671,11 @@ $is_connected = $status['status'] === 'connected';
             </div>
             <div class="qualid-card-body">
                 <ol style="font-size:13px;color:#3a4a60;padding-left:20px;margin:0;line-height:2;">
-                    <li>Login with your <strong>QUALI-D account</strong> and click <strong>Login &amp; Connect</strong>.</li>
+                    <li>Login with your <strong>Quali-D account</strong> and click <strong>Login &amp; Connect</strong>.</li>
                     <li>Click <strong>Provision</strong> next to each agent who will work remotely.</li>
                     <li>In your <strong>Ring Groups</strong> or <strong>Queues</strong>, use the agent's <strong>agent code</strong> as the SIP username via the <em>QualidRemote</em> trunk.</li>
-                    <li>The agent installs the <strong>QUALI-D mobile app</strong> and logs in with their agent code.</li>
-                    <li>Calls route: <strong>PSTN → FreePBX → QUALI-D Cloud → Agent App</strong>, all over port 443.</li>
+                    <li>The agent installs the <strong>Quali-D mobile app</strong> and logs in with their agent code.</li>
+                    <li>Calls route: <strong>PSTN → FreePBX → Quali-D Cloud → Agent App</strong>, all over port 443.</li>
                 </ol>
 
                 <hr class="qualid-divider">

@@ -2,7 +2,7 @@
 <module>
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
-    <name>QUALI-D Remote Agent</name>
+    <name>Quali-D Connect</name>
     <version>1.0.20</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
@@ -31,6 +31,6 @@
         <module>core</module>
     </depends>
     <menuitems>
-        <qualid_remote>QUALI-D Remote Agent</qualid_remote>
+        <qualid_remote>Quali-D Connect</qualid_remote>
     </menuitems>
 </module>

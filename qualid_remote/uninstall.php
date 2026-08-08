@@ -1,6 +1,6 @@
 <?php
 /**
- * QUALI-D Remote Agent — Module Uninstall
+ * Quali-D Connect — Module Uninstall
  * Removes all config keys and Asterisk config files.
  */
 
@@ -18,4 +18,4 @@ qualid_remove_asterisk_config();
 // Remove IVR AGI script and conf file
 qualid_remove_agi_files();
 
-out('QUALI-D Remote Agent uninstalled. Asterisk configs and AGI script removed.');
+out('Quali-D Connect uninstalled. Asterisk configs and AGI script removed.');
