@@ -15,4 +15,7 @@ if (file_exists($cfg_path)) {
 // Remove Asterisk config files and #include lines
 qualid_remove_asterisk_config();
 
-out('QUALI-D Remote Agent uninstalled. Asterisk configs removed.');
+// Remove IVR AGI script and conf file
+qualid_remove_agi_files();
+
+out('QUALI-D Remote Agent uninstalled. Asterisk configs and AGI script removed.');

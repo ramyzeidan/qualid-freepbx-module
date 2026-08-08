@@ -44,6 +44,13 @@ function qualid_complete_login($token, $user_name, $company_name) {
         'trunk_pass' => $data['trunk_password'],
     ]);
 
+    // Generate a per-company AGI secret, register it with the QUALI-D cloud,
+    // and deploy the IVR AGI script to /var/lib/asterisk/agi-bin/ automatically.
+    $agi_secret = qualid_generate_agi_secret();
+    qualid_register_agi_secret($token, $agi_secret);  // best-effort — failure is non-fatal
+    qualid_set('agi_secret', $agi_secret);
+    qualid_write_agi_files($agi_secret);
+
     return ['success' => true];
 }
 
@@ -122,6 +129,7 @@ if (isset($_GET['qual_ajax'])) {
         case 'disconnect':
             qualid_save_config([]);
             qualid_remove_asterisk_config();
+            qualid_remove_agi_files();
             echo json_encode(['success' => true]);
             exit;
 
