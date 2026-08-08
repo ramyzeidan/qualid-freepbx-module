@@ -52,6 +52,10 @@ function qualid_complete_login($token, $user_name, $company_name) {
     qualid_set('agi_secret', $agi_secret);
     qualid_write_agi_files($agi_secret);
 
+    // Register this FreePBX server's IP with the QUALI-D cloud so agents
+    // know which host to SIP-register against (best-effort — non-fatal).
+    qualid_push_pbx_host($token);
+
     return ['success' => true];
 }
 

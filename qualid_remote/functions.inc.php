@@ -382,6 +382,24 @@ function qualid_send_heartbeat($token) {
 }
 
 /**
+ * Push this FreePBX server's own IP/hostname to the QUALI-D cloud so agents
+ * know which host to register their SIP extensions against.
+ * Uses SERVER_ADDR when available, falls back to gethostbyname(gethostname()).
+ * Non-fatal — failure is logged but does not block login.
+ */
+function qualid_push_pbx_host($token) {
+    $host = !empty($_SERVER['SERVER_ADDR'])
+        ? $_SERVER['SERVER_ADDR']
+        : gethostbyname(gethostname());
+
+    return qualid_curl_post(
+        QUALID_MAIN_API . '/company/pbx-host',
+        ['pbx_host' => $host, 'pbx_port' => 5060],
+        ['Authorization: Bearer ' . $token]
+    );
+}
+
+/**
  * Run all IVR connectivity checks:
  *   1. Can we reach the QUALI-D API?
  *   2. Is the AGI script deployed?
