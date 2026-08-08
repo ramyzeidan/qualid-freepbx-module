@@ -326,6 +326,198 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
+    // Tab switching
+    // -------------------------------------------------------------------------
+
+    function switchTab(name) {
+        $('.qualid-tab-panel').hide();
+        $('.qualid-tab-btn').removeClass('active');
+        $('#qtab-' + name).show();
+        $('#qtab-btn-' + name).addClass('active');
+    }
+
+    // -------------------------------------------------------------------------
+    // Extensions
+    // -------------------------------------------------------------------------
+
+    function loadExtensions() {
+        var $tbody = $('#qualid-extensions-body');
+        if (!$tbody.length) return;
+
+        $.ajax({
+            url:      BASE_URL,
+            method:   'GET',
+            data:     { ajax_action: 'get_local_extensions' },
+            dataType: 'json',
+        }).done(function (res) {
+            if (!res.success || !res.extensions || res.extensions.length === 0) {
+                $tbody.html(
+                    '<tr><td colspan="5"><div class="qualid-empty">' +
+                    '<div class="empty-icon">\u260E</div>' +
+                    '<p>No local extensions found in FreePBX.</p></div></td></tr>'
+                );
+                return;
+            }
+            renderExtensions(res.extensions);
+        }).fail(function () {
+            $tbody.html('<tr><td colspan="5"><div class="qualid-alert qualid-alert-error">' +
+                '<i class="fa fa-exclamation-circle"></i> Failed to load extensions.</div></td></tr>');
+        });
+    }
+
+    function renderExtensions(extensions) {
+        var $tbody = $('#qualid-extensions-body');
+        $tbody.empty();
+
+        extensions.forEach(function (ext) {
+            var isOnline = ext.status === 'online';
+            var badge    = isOnline
+                ? '<span class="reg-badge provisioned"><span class="dot"></span>Online</span>'
+                : '<span class="reg-badge offline"><span class="dot"></span>Offline</span>';
+
+            var $row = $(
+                '<tr>' +
+                '<td style="font-family:monospace;font-weight:700;color:#1a7fff;">' + escHtml(ext.extension) + '</td>' +
+                '<td>' + escHtml(ext.display_name || ext.name || '\u2014') + '</td>' +
+                '<td style="font-size:11px;color:#8a9db5;text-transform:uppercase;">' + escHtml(ext.type || 'pjsip') + '</td>' +
+                '<td>' + badge + '</td>' +
+                '<td>' +
+                '<button class="qualid-btn qualid-btn-outline qualid-btn-sm" style="color:#e53935;" ' +
+                'onclick="QualidRemote.deleteExtension(\'' + escHtml(ext.extension) + '\',this)">' +
+                '<i class="fa fa-trash"></i></button>' +
+                '</td>' +
+                '</tr>'
+            );
+            $tbody.append($row);
+        });
+    }
+
+    function deleteExtension(ext, btn) {
+        if (!confirm('Delete extension ' + ext + '? This cannot be undone.')) return;
+        var $btn = $(btn);
+        setButtonLoading($btn, '');
+
+        $.ajax({
+            url:    BASE_URL,
+            method: 'POST',
+            data:   { ajax_action: 'delete_extension', extension: ext },
+            dataType: 'json',
+        }).done(function (res) {
+            if (res.success) {
+                autoSync();
+            } else {
+                alert('Error: ' + (res.error || 'Could not delete extension.'));
+                resetButton($btn);
+            }
+        }).fail(function () {
+            alert('Network error.');
+            resetButton($btn);
+        });
+    }
+
+    function handleSaveExtension() {
+        var $btn    = $('#qualid-save-ext-btn');
+        var ext     = $('#qualid-new-ext').val().trim();
+        var name    = $('#qualid-new-ext-name').val().trim();
+        var secret  = $('#qualid-new-ext-secret').val().trim();
+
+        clearAlert('#qualid-add-ext-alert');
+
+        if (!ext || !name || !secret) {
+            showAlert('#qualid-add-ext-alert', 'error', 'All fields are required.');
+            return;
+        }
+
+        setButtonLoading($btn, 'Saving\u2026');
+
+        $.ajax({
+            url:    BASE_URL,
+            method: 'POST',
+            data:   { ajax_action: 'create_extension', extension: ext, display_name: name, secret: secret },
+            dataType: 'json',
+        }).done(function (res) {
+            if (res.success) {
+                $('#qualid-add-ext-form').hide();
+                $('#qualid-new-ext, #qualid-new-ext-name, #qualid-new-ext-secret').val('');
+                autoSync();
+            } else {
+                showAlert('#qualid-add-ext-alert', 'error', res.error || 'Failed to create extension.');
+                resetButton($btn);
+            }
+        }).fail(function () {
+            showAlert('#qualid-add-ext-alert', 'error', 'Network error.');
+            resetButton($btn);
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // IVR Status Card
+    // -------------------------------------------------------------------------
+
+    function loadIvrStatus() {
+        var $body = $('#qualid-ivr-status-body');
+        if (!$body.length) return;
+
+        $.ajax({
+            url:      BASE_URL,
+            method:   'GET',
+            data:     { ajax_action: 'get_ivr_status' },
+            dataType: 'json',
+        }).done(function (res) {
+            renderIvrStatus(res);
+        }).fail(function () {
+            $body.html('<div class="qualid-alert qualid-alert-error" style="margin:12px;">' +
+                '<i class="fa fa-exclamation-circle"></i> Could not check IVR status.</div>');
+        });
+    }
+
+    function renderIvrStatus(s) {
+        var $body = $('#qualid-ivr-status-body');
+        if (!$body.length) return;
+
+        function row(label, ok, detail) {
+            var icon  = ok ? '<i class="fa fa-check-circle" style="color:#22c55e;"></i>'
+                           : '<i class="fa fa-times-circle" style="color:#ef4444;"></i>';
+            var dspan = detail ? '<span style="color:#8a9db5;font-size:11px;margin-left:6px;">' + detail + '</span>' : '';
+            return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f4fa;">' +
+                   icon + '<span style="font-size:13px;color:#3a4a60;">' + label + '</span>' + dspan + '</div>';
+        }
+
+        var syncNote = s.last_sync
+            ? 'Last sync: ' + s.last_sync
+            : 'Never synced';
+
+        var html = row('QUALI-D API reachable',   !!s.api_reachable,  '');
+        html    += row('AGI script deployed',      !!s.agi_deployed,   '');
+        html    += row('AGI secret registered',    !!s.agi_secret_set, '');
+        html    += '<div style="padding:8px 0;font-size:11px;color:#8a9db5;">' + escHtml(syncNote) + '</div>';
+
+        $body.html(html);
+    }
+
+    // -------------------------------------------------------------------------
+    // Auto-sync (page load + every 5 min)
+    // -------------------------------------------------------------------------
+
+    function autoSync() {
+        // Refresh extension list in UI
+        loadExtensions();
+
+        // Push to cloud + heartbeat
+        $.ajax({
+            url:      BASE_URL,
+            method:   'POST',
+            data:     { ajax_action: 'sync_extensions' },
+            dataType: 'json',
+        }).done(function (res) {
+            if (res.success) {
+                var now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                $('#qualid-ext-sync-badge').text('synced ' + now);
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------
     // Init
     // -------------------------------------------------------------------------
 
@@ -356,21 +548,51 @@ var QualidRemote = (function ($) {
         // Refresh agents
         $('#qualid-refresh-agents').on('click', loadAgents);
 
-        // Auto-load agents when connected
-        if ($('#qualid-agents-body').length) {
-            loadAgents();
-        }
+        // IVR status refresh
+        $('#qualid-ivr-refresh-btn').on('click', function () {
+            loadIvrStatus();
+            autoSync();
+        });
+
+        // Extension add/cancel
+        $('#qualid-add-ext-btn').on('click', function () {
+            $('#qualid-add-ext-form').toggle();
+        });
+        $('#qualid-cancel-ext-btn').on('click', function () {
+            $('#qualid-add-ext-form').hide();
+            clearAlert('#qualid-add-ext-alert');
+        });
+        $('#qualid-save-ext-btn').on('click', handleSaveExtension);
+        $('#qualid-new-ext-secret').on('keydown', function (e) {
+            if (e.key === 'Enter') handleSaveExtension();
+        });
 
         // Copy SIP domain
         $('#qualid-copy-domain').on('click', function () {
             copyToClipboard($(this).data('value'), $(this));
         });
+
+        // Auto-load when connected
+        if ($('#qualid-agents-body').length) {
+            loadAgents();
+        }
+        if ($('#qualid-extensions-body').length) {
+            // Load extensions immediately, then auto-sync every 5 minutes
+            autoSync();
+            loadIvrStatus();
+            setInterval(function () {
+                autoSync();
+                loadIvrStatus();
+            }, 5 * 60 * 1000);
+        }
     }
 
     return {
-        init:           init,
-        provisionAgent: provisionAgent,
-        copyAgentSip:   copyAgentSip,
+        init:            init,
+        provisionAgent:  provisionAgent,
+        copyAgentSip:    copyAgentSip,
+        switchTab:       switchTab,
+        deleteExtension: deleteExtension,
     };
 
 }(jQuery));

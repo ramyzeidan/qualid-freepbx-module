@@ -206,6 +206,62 @@ if (isset($_GET['qual_ajax'])) {
             }
             exit;
 
+        // -- Get local extensions (FreePBX DB + AMI status) -------------------
+        case 'get_local_extensions':
+            $extensions = qualid_get_local_extensions();
+            echo json_encode(['success' => true, 'extensions' => $extensions]);
+            exit;
+
+        // -- Create a new local extension -------------------------------------
+        case 'create_extension':
+            $ext          = trim(isset($_POST['extension'])    ? $_POST['extension']    : '');
+            $display_name = trim(isset($_POST['display_name']) ? $_POST['display_name'] : '');
+            $secret       = trim(isset($_POST['secret'])       ? $_POST['secret']       : '');
+
+            if (!$ext || !$display_name || !$secret) {
+                echo json_encode(['success' => false, 'error' => 'Extension, name, and password are required.']);
+                exit;
+            }
+            echo json_encode(qualid_create_extension($ext, $display_name, $secret));
+            exit;
+
+        // -- Delete a local extension -----------------------------------------
+        case 'delete_extension':
+            $ext = trim(isset($_POST['extension']) ? $_POST['extension'] : '');
+            if (!$ext) {
+                echo json_encode(['success' => false, 'error' => 'Extension number required.']);
+                exit;
+            }
+            echo json_encode(qualid_delete_extension($ext));
+            exit;
+
+        // -- Sync extensions to QUALI-D cloud ---------------------------------
+        case 'sync_extensions':
+            $token = qualid_get('token');
+            if (!$token) {
+                echo json_encode(['success' => false, 'error' => 'Not connected.']);
+                exit;
+            }
+            $extensions = qualid_get_local_extensions();
+            // Also send heartbeat alongside sync
+            qualid_send_heartbeat($token);
+            $result = qualid_sync_extensions_to_qualid($token, $extensions);
+            echo json_encode(array_merge(
+                is_array($result) ? $result : ['success' => false],
+                ['extension_count' => count($extensions)]
+            ));
+            exit;
+
+        // -- IVR connection status check --------------------------------------
+        case 'get_ivr_status':
+            $token = qualid_get('token');
+            if ($token) qualid_send_heartbeat($token);
+            echo json_encode(array_merge(
+                ['success' => true],
+                qualid_test_ivr_connection()
+            ));
+            exit;
+
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action.']);
             exit;
@@ -444,14 +500,44 @@ $is_connected = $status['status'] === 'connected';
                 </div>
             </div>
         </div>
+
+        <!-- IVR Connection Status Card -->
+        <div class="qualid-card" id="qualid-ivr-status-card">
+            <div class="qualid-card-header">
+                <h3>
+                    <span class="card-icon"><i class="fa fa-exchange"></i></span>
+                    IVR Connection Status
+                </h3>
+                <button class="qualid-btn qualid-btn-outline qualid-btn-sm" id="qualid-ivr-refresh-btn">
+                    <i class="fa fa-refresh"></i>
+                </button>
+            </div>
+            <div class="qualid-card-body" id="qualid-ivr-status-body">
+                <div style="text-align:center;padding:16px;color:#8a9db5;">
+                    <span class="qualid-spinner dark"></span> Checking&hellip;
+                </div>
+            </div>
+        </div>
         <?php endif; ?>
 
     </div>
 
     <div class="col-md-7">
 
+        <!-- Tab bar (Agents / Extensions) -->
+        <div class="qualid-tab-bar" style="<?= $is_connected ? '' : 'opacity:0.5;pointer-events:none;' ?>">
+            <button class="qualid-tab-btn active" id="qtab-btn-agents"
+                    onclick="QualidRemote.switchTab('agents')">
+                <i class="fa fa-users"></i> Remote Agents
+            </button>
+            <button class="qualid-tab-btn" id="qtab-btn-extensions"
+                    onclick="QualidRemote.switchTab('extensions')">
+                <i class="fa fa-phone-square"></i> Extensions
+            </button>
+        </div>
+
         <!-- Agents Card -->
-        <div class="qualid-card" id="qualid-agents-section"
+        <div class="qualid-card qualid-tab-panel" id="qtab-agents"
              style="<?= $is_connected ? '' : 'opacity:0.5;pointer-events:none;' ?>">
             <div class="qualid-card-header">
                 <h3>
@@ -494,6 +580,84 @@ $is_connected = $status['status'] === 'connected';
                 </table>
                 <?php endif; ?>
 
+            </div>
+        </div>
+
+        <!-- Extensions Card -->
+        <div class="qualid-card qualid-tab-panel" id="qtab-extensions" style="display:none;">
+            <div class="qualid-card-header">
+                <h3>
+                    <span class="card-icon"><i class="fa fa-phone-square"></i></span>
+                    Local Extensions
+                    <span id="qualid-ext-sync-badge"
+                          style="font-size:10px;color:#8a9db5;font-weight:400;margin-left:8px;"></span>
+                </h3>
+                <?php if ($is_connected): ?>
+                <button class="qualid-btn qualid-btn-primary qualid-btn-sm" id="qualid-add-ext-btn">
+                    <i class="fa fa-plus"></i> Add Extension
+                </button>
+                <?php endif; ?>
+            </div>
+
+            <!-- Add Extension form (hidden by default) -->
+            <div id="qualid-add-ext-form" style="display:none;padding:14px 16px;border-bottom:1px solid #e8edf5;background:#f7f9fc;">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                    <div style="flex:0 0 90px;">
+                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">Extension #</label>
+                        <input type="text" id="qualid-new-ext" class="form-control"
+                               placeholder="e.g. 1005" maxlength="6"
+                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">Display Name</label>
+                        <input type="text" id="qualid-new-ext-name" class="form-control"
+                               placeholder="e.g. John Smith"
+                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
+                    </div>
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">SIP Password</label>
+                        <input type="text" id="qualid-new-ext-secret" class="form-control"
+                               placeholder="Strong password"
+                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <button class="qualid-btn qualid-btn-primary qualid-btn-sm" id="qualid-save-ext-btn">
+                            <i class="fa fa-check"></i> Save
+                        </button>
+                        <button class="qualid-btn qualid-btn-outline qualid-btn-sm" id="qualid-cancel-ext-btn">
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+                <div id="qualid-add-ext-alert" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="qualid-card-body" style="padding:0;">
+                <?php if (!$is_connected): ?>
+                <div class="qualid-empty">
+                    <div class="empty-icon">🔌</div>
+                    <p>Connect to QUALI-D first.</p>
+                </div>
+                <?php else: ?>
+                <table class="qualid-agent-table">
+                    <thead>
+                        <tr>
+                            <th>Extension</th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="qualid-extensions-body">
+                        <tr>
+                            <td colspan="5" class="text-center" style="padding:30px;color:#8a9db5;">
+                                <span class="qualid-spinner dark"></span> Loading&hellip;
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <?php endif; ?>
             </div>
         </div>
 

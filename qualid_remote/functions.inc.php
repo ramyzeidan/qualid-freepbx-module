@@ -419,3 +419,169 @@ function qualid_register_agi_secret($token, $agi_secret) {
         ['Authorization: Bearer ' . $token]
     );
 }
+
+// ---------------------------------------------------------------------------
+// Extension Management
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all local FreePBX extensions with PJSIP registration status.
+ * Returns array of: [{extension, display_name, type, status}]
+ */
+function qualid_get_local_extensions() {
+    global $db;
+    $extensions = [];
+
+    // Query FreePBX core users table for extension list
+    $rows = $db->getAll(
+        "SELECT extension, name FROM users ORDER BY extension+0",
+        null, DB_FETCHMODE_ASSOC
+    );
+    if (!$rows || PEAR::isError($rows)) $rows = [];
+
+    // Get registered extensions from Asterisk CLI
+    $registered = qualid_get_registered_pjsip_extensions();
+
+    foreach ($rows as $row) {
+        $ext          = (string) $row['extension'];
+        $extensions[] = [
+            'extension'    => $ext,
+            'display_name' => $row['name'],
+            'name'         => $row['name'],
+            'type'         => 'pjsip',
+            'status'       => isset($registered[$ext]) ? 'online' : 'offline',
+        ];
+    }
+
+    return $extensions;
+}
+
+/**
+ * Parse `asterisk -rx "pjsip show contacts"` to find registered (available) extensions.
+ * Returns associative array: ['1001' => true, ...]
+ */
+function qualid_get_registered_pjsip_extensions() {
+    $registered = [];
+    $output = @shell_exec('asterisk -rx "pjsip show contacts" 2>/dev/null');
+    if (!$output) return $registered;
+
+    foreach (explode("\n", $output) as $line) {
+        // Lines look like:  " 1001/sip:1001@...    <hash>  3600  Avail  0.500"
+        // An extension is "online" if its contact line contains "Avail" but NOT "Unavail"
+        if (preg_match('/^\s+(\d{2,6})\s*[\/:]/', $line, $m)) {
+            if (stripos($line, 'Avail') !== false && stripos($line, 'Unavail') === false) {
+                $registered[$m[1]] = true;
+            }
+        }
+    }
+
+    return $registered;
+}
+
+/**
+ * Create a new local FreePBX PJSIP extension via FreePBX Core BMO.
+ * Returns ['success'=>true] or ['success'=>false, 'error'=>'...']
+ */
+function qualid_create_extension($extension, $display_name, $secret) {
+    if (!preg_match('/^\d{2,6}$/', $extension)) {
+        return ['success' => false, 'error' => 'Extension must be 2-6 digits'];
+    }
+
+    global $db;
+    $existing = $db->getOne(
+        "SELECT extension FROM users WHERE extension = " . $db->quote($extension)
+    );
+    if ($existing) {
+        return ['success' => false, 'error' => 'Extension ' . $extension . ' already exists'];
+    }
+
+    try {
+        $fpbx = FreePBX::create();
+        $fpbx->Core->addUser($extension, $display_name, [
+            'tech'   => 'pjsip',
+            'secret' => $secret,
+        ]);
+        needreload();
+        return ['success' => true];
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Delete a local FreePBX extension.
+ */
+function qualid_delete_extension($extension) {
+    try {
+        FreePBX::create()->Core->delUser($extension);
+        needreload();
+        return ['success' => true];
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Push the current extension list to the QUALI-D cloud API.
+ * Stores last_sync_at timestamp in config.json on success.
+ */
+function qualid_sync_extensions_to_qualid($token, $extensions) {
+    $result = qualid_curl_post(
+        QUALID_MAIN_API . '/extensions/sync',
+        ['extensions' => $extensions],
+        ['Authorization: Bearer ' . $token]
+    );
+    if (isset($result['success']) && $result['success']) {
+        qualid_set('last_sync_at', date('Y-m-d H:i:s'));
+    }
+    return $result;
+}
+
+/**
+ * Send a heartbeat ping to QUALI-D so the cloud knows FreePBX is alive.
+ */
+function qualid_send_heartbeat($token) {
+    return qualid_curl_post(
+        QUALID_MAIN_API . '/ivr/heartbeat',
+        [],
+        ['Authorization: Bearer ' . $token]
+    );
+}
+
+/**
+ * Run all IVR connectivity checks:
+ *   1. Can we reach the QUALI-D API?
+ *   2. Is the AGI script deployed?
+ *   3. Is the AGI secret set?
+ * Returns a status array consumed by the IVR Status card.
+ */
+function qualid_test_ivr_connection() {
+    $token      = qualid_get('token', '');
+    $agi_secret = qualid_get('agi_secret', '');
+    $last_sync  = qualid_get('last_sync_at', '');
+
+    $api_ok = false;
+    if ($token) {
+        $ch = curl_init(QUALID_MAIN_API . '/ivr/connection-status');
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $token,
+                'Accept: application/json',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_SSL_VERIFYPEER => true,
+        ]);
+        curl_exec($ch);
+        $code   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $api_ok = ($code >= 200 && $code < 300);
+        curl_close($ch);
+    }
+
+    return [
+        'api_reachable'  => $api_ok,
+        'agi_deployed'   => file_exists(QUALID_AGI_BIN) && file_exists(QUALID_IVR_CONF),
+        'agi_secret_set' => !empty($agi_secret),
+        'last_sync'      => $last_sync,
+    ];
+}
