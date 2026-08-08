@@ -319,6 +319,11 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
     </div>
     <div class="qualid-hero-badge">
         <span class="qualid-version"><?= htmlspecialchars($_module_ver) ?></span>
+        <button id="qualid-check-update-btn" title="Check for updates"
+                style="background:none;border:none;color:rgba(255,255,255,0.55);cursor:pointer;padding:0 4px;font-size:13px;line-height:1;"
+                onclick="QualidRemote.checkForUpdate(this)">
+            <i class="fa fa-refresh"></i>
+        </button>
         <span id="qualid-update-badge" style="display:none;margin-left:8px;">
             <button id="qualid-do-update-btn"
                     class="btn btn-xs btn-warning"

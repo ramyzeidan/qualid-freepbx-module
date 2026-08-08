@@ -533,7 +533,13 @@ var QualidRemote = (function ($) {
     // GitHub self-update check
     // -------------------------------------------------------------------------
 
-    function checkForUpdate() {
+    function checkForUpdate(btn) {
+        var $icon = btn ? $(btn).find('i') : null;
+        if ($icon) {
+            $icon.addClass('fa-spin');
+            $(btn).prop('disabled', true);
+        }
+
         $.ajax({
             url:      BASE_URL,
             method:   'GET',
@@ -543,7 +549,23 @@ var QualidRemote = (function ($) {
             if (res.success && res.update_available) {
                 $('#qualid-update-label').text('v' + res.latest_version + ' available');
                 $('#qualid-update-badge').show();
+            } else if (btn && res.success && !res.update_available) {
+                // Manual check — briefly show "Up to date" feedback on the icon
+                if ($icon) {
+                    $icon.removeClass('fa-refresh fa-spin').addClass('fa-check');
+                    setTimeout(function () {
+                        $icon.removeClass('fa-check').addClass('fa-refresh');
+                    }, 2000);
+                }
+            } else if (btn && !res.success) {
+                if ($icon) { $icon.removeClass('fa-spin'); }
+                alert('Update check failed: ' + (res.error || 'Could not reach GitHub'));
             }
+        }).fail(function () {
+            if (btn) { alert('Update check failed \u2014 network error.'); }
+        }).always(function () {
+            if ($icon) { $icon.removeClass('fa-spin'); }
+            if (btn) { $(btn).prop('disabled', false); }
         });
     }
 
@@ -651,6 +673,7 @@ var QualidRemote = (function ($) {
         copyAgentSip:    copyAgentSip,
         switchTab:       switchTab,
         deleteExtension: deleteExtension,
+        checkForUpdate:  checkForUpdate,
     };
 
 }(jQuery));
