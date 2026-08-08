@@ -437,7 +437,7 @@ function qualid_get_local_extensions() {
         "SELECT extension, name FROM users ORDER BY extension+0",
         null, DB_FETCHMODE_ASSOC
     );
-    if (!$rows || PEAR::isError($rows)) $rows = [];
+    if (!is_array($rows)) $rows = [];
 
     // Get registered extensions from Asterisk CLI
     $registered = qualid_get_registered_pjsip_extensions();

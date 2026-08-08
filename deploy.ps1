@@ -29,13 +29,10 @@ $hasChanges = $status -ne $null -and $status.Count -gt 0
 if ($hasChanges) {
     $status | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkYellow }
 
-    # Commit message
-    Write-Header "Commit message:"
+    # Commit message (optional — Enter uses "Deploy update")
+    Write-Header "Commit message (Enter to skip):"
     $msg = Read-Host "  >"
-    if (-not $msg.Trim()) {
-        Write-Err "Commit message cannot be empty."
-        exit 1
-    }
+    if (-not $msg.Trim()) { $msg = "Deploy update" }
 
     # Stage, commit, push
     Write-Header "Committing and pushing..."
@@ -64,25 +61,28 @@ if ($release -ne 'y') {
 }
 
 # ---------------------------------------------------------------------------
-# Read current version from module.xml
+# Read current version from module.xml + auto-increment patch
 # ---------------------------------------------------------------------------
 $xml = [xml](Get-Content "qualid_remote/module.xml")
 $currentVersion = $xml.module.version.Trim()
-Write-Info "Current version in module.xml: $currentVersion"
+
+$parts = $currentVersion -split '\.'
+$parts[-1] = [int]$parts[-1] + 1
+$suggestedVersion = $parts -join '.'
+
+Write-Info "Current version: $currentVersion  →  suggested: $suggestedVersion"
 
 # ---------------------------------------------------------------------------
 # New version number
 # ---------------------------------------------------------------------------
-$newVersion = Read-Host "  New version (e.g. 1.0.1) [enter to keep $currentVersion]"
-if (-not $newVersion.Trim()) {
-    $newVersion = $currentVersion
-}
+$newVersion = Read-Host "  New version [Enter for $suggestedVersion]"
+if (-not $newVersion.Trim()) { $newVersion = $suggestedVersion }
 
 # Update module.xml if version changed
 if ($newVersion -ne $currentVersion) {
     Write-Info "Updating module.xml to $newVersion..."
     $content = Get-Content "qualid_remote/module.xml" -Raw
-    $content = $content -replace "<version>$currentVersion</version>", "<version>$newVersion</version>"
+    $content = $content -replace "<version>$([regex]::Escape($currentVersion))</version>", "<version>$newVersion</version>"
     Set-Content "qualid_remote/module.xml" $content -NoNewline
     git add qualid_remote/module.xml
     git commit -m "Bump version to $newVersion"
