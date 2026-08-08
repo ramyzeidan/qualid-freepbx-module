@@ -503,7 +503,7 @@ var QualidRemote = (function ($) {
         // Refresh extension list in UI
         loadExtensions();
 
-        // Push to cloud + heartbeat
+        // Push extensions + heartbeat to cloud
         $.ajax({
             url:      BASE_URL,
             method:   'POST',
@@ -514,6 +514,14 @@ var QualidRemote = (function ($) {
                 var now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 $('#qualid-ext-sync-badge').text('synced ' + now);
             }
+        });
+
+        // Silently push new CDR records to cloud (incremental)
+        $.ajax({
+            url:      BASE_URL,
+            method:   'POST',
+            data:     { ajax_action: 'sync_cdr' },
+            dataType: 'json',
         });
     }
 

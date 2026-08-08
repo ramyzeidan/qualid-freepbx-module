@@ -589,6 +589,73 @@ function qualid_test_ivr_connection() {
 }
 
 // ---------------------------------------------------------------------------
+// CDR Sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch CDR records from the local asteriskcdrdb.cdr table.
+ * Uses a cross-database PDO query — the FreePBX MySQL user has SELECT on asteriskcdrdb.
+ * If $since is provided (Y-m-d H:i:s string), only newer records are returned.
+ * Returns up to 500 rows per call (incremental, so this is usually far fewer).
+ */
+function qualid_get_cdr_since($since = null) {
+    try {
+        $pdo = FreePBX::create()->Database;
+        if ($since) {
+            $stmt = $pdo->prepare(
+                "SELECT uniqueid, calldate, src, dst, duration, billsec, disposition
+                 FROM asteriskcdrdb.cdr
+                 WHERE calldate > ?
+                 ORDER BY calldate ASC
+                 LIMIT 500"
+            );
+            $stmt->execute([$since]);
+        } else {
+            // First sync: grab last 500 records (most recent)
+            $stmt = $pdo->prepare(
+                "SELECT uniqueid, calldate, src, dst, duration, billsec, disposition
+                 FROM asteriskcdrdb.cdr
+                 ORDER BY calldate DESC
+                 LIMIT 500"
+            );
+            $stmt->execute();
+        }
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $rows = [];
+    }
+    return is_array($rows) ? $rows : [];
+}
+
+/**
+ * Push new CDR records to the QUALI-D cloud API (incremental — since last sync).
+ * Stores last_cdr_sync_at in config.json on success.
+ */
+function qualid_sync_cdr_to_qualid($token) {
+    $lastSync = qualid_get('last_cdr_sync_at', null);
+    $rows     = qualid_get_cdr_since($lastSync);
+
+    if (empty($rows)) {
+        return ['success' => true, 'synced' => 0, 'message' => 'No new records'];
+    }
+
+    $result = qualid_curl_post(
+        QUALID_MAIN_API . '/cdr/sync',
+        ['records' => $rows],
+        ['Authorization: Bearer ' . $token]
+    );
+
+    if (isset($result['success']) && $result['success']) {
+        qualid_set('last_cdr_sync_at', date('Y-m-d H:i:s'));
+    }
+
+    return array_merge(
+        is_array($result) ? $result : ['success' => false],
+        ['record_count' => count($rows)]
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Self-update from GitHub releases
 // ---------------------------------------------------------------------------
 

@@ -262,6 +262,16 @@ if (isset($_GET['qual_ajax'])) {
             ));
             exit;
 
+        // -- Sync CDR records to QUALI-D cloud --------------------------------
+        case 'sync_cdr':
+            $token = qualid_get('token');
+            if (!$token) {
+                echo json_encode(['success' => false, 'error' => 'Not connected.']);
+                exit;
+            }
+            echo json_encode(qualid_sync_cdr_to_qualid($token));
+            exit;
+
         // -- Check GitHub for a newer release ---------------------------------
         case 'check_update':
             echo json_encode(qualid_check_github_update());
