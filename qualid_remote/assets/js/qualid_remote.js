@@ -171,105 +171,6 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
-    // Agents
-    // -------------------------------------------------------------------------
-
-    function loadAgents() {
-        var $container = $('#qualid-agents-body');
-        $container.html(
-            '<tr><td colspan="4" class="text-center" style="padding:30px;color:#8a9db5;">' +
-            '<span class="qualid-spinner dark"></span> Loading agents\u2026</td></tr>'
-        );
-
-        $.ajax({
-            url:    BASE_URL,
-            method: 'GET',
-            data:   { ajax_action: 'get_agents' },
-            dataType: 'json',
-        }).done(function (res) {
-            if (!res.success || !res.agents || res.agents.length === 0) {
-                $container.html(
-                    '<tr><td colspan="4">' +
-                    '<div class="qualid-empty"><div class="empty-icon">\uD83D\uDC64</div>' +
-                    '<p>No agents found in your QUALI-D account.</p></div>' +
-                    '</td></tr>'
-                );
-                return;
-            }
-            renderAgents(res.agents);
-        }).fail(function () {
-            $container.html('<tr><td colspan="4"><div class="qualid-alert qualid-alert-error">' +
-                '<i class="fa fa-exclamation-circle"></i> Failed to load agents.</div></td></tr>');
-        });
-    }
-
-    function renderAgents(agents) {
-        var $container = $('#qualid-agents-body');
-        $container.empty();
-
-        agents.forEach(function (agent) {
-            var isProvisioned = !!agent.sip_username;
-            var rowStyle      = agent.active ? '' : ' style="opacity:0.55;"';
-
-            var statusBadge = isProvisioned
-                ? '<span class="reg-badge provisioned"><span class="dot"></span>Provisioned</span>'
-                : '<span class="reg-badge offline"><span class="dot"></span>Not provisioned</span>';
-
-            var actions = isProvisioned
-                ? '<button class="qualid-btn qualid-btn-outline qualid-btn-sm" ' +
-                  'onclick="QualidRemote.copyAgentSip(\'' + escHtml(agent.sip_username) + '\',this)">' +
-                  '<i class="fa fa-copy"></i> Copy SIP</button>'
-                : '<button class="qualid-btn qualid-btn-primary qualid-btn-sm" ' +
-                  'onclick="QualidRemote.provisionAgent(\'' + escHtml(String(agent.id)) + '\',\'' +
-                  escHtml(agent.name) + '\',\'' + escHtml(agent.agent_code) + '\',this)">' +
-                  '<i class="fa fa-plug"></i> Provision</button>';
-
-            var nameSuffix = agent.active ? '' : ' <span style="font-size:10px;color:#c0ccd8;">(inactive)</span>';
-
-            var $row = $(
-                '<tr' + rowStyle + '>' +
-                '<td class="agent-name-cell">' + escHtml(agent.name) + nameSuffix + '</td>' +
-                '<td style="font-family:monospace;font-size:12px;color:#5a6a80;">' + escHtml(agent.agent_code) + '</td>' +
-                '<td>' + statusBadge + '</td>' +
-                '<td>' + actions + '</td>' +
-                '</tr>'
-            );
-            $container.append($row);
-        });
-    }
-
-    function provisionAgent(agentId, agentName, agentCode, btn) {
-        var $btn = $(btn);
-        setButtonLoading($btn, 'Provisioning\u2026');
-
-        $.ajax({
-            url:    BASE_URL,
-            method: 'POST',
-            data: {
-                ajax_action: 'provision_agent',
-                agent_id:    agentId,
-                agent_name:  agentName,
-                agent_code:  agentCode,
-            },
-            dataType: 'json',
-        }).done(function (res) {
-            if (res.success) {
-                loadAgents();
-            } else {
-                alert('Error provisioning agent: ' + (res.error || 'Unknown'));
-                resetButton($btn);
-            }
-        }).fail(function () {
-            alert('Network error.');
-            resetButton($btn);
-        });
-    }
-
-    function copyAgentSip(sipUsername, btn) {
-        copyToClipboard(sipUsername, $(btn));
-    }
-
-    // -------------------------------------------------------------------------
     // Test connection
     // -------------------------------------------------------------------------
 
@@ -326,131 +227,6 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
-    // Tab switching
-    // -------------------------------------------------------------------------
-
-    function switchTab(name) {
-        $('.qualid-tab-panel').hide();
-        $('.qualid-tab-btn').removeClass('active');
-        $('#qtab-' + name).show();
-        $('#qtab-btn-' + name).addClass('active');
-    }
-
-    // -------------------------------------------------------------------------
-    // Extensions
-    // -------------------------------------------------------------------------
-
-    function loadExtensions() {
-        var $tbody = $('#qualid-extensions-body');
-        if (!$tbody.length) return;
-
-        $.ajax({
-            url:      BASE_URL,
-            method:   'GET',
-            data:     { ajax_action: 'get_local_extensions' },
-            dataType: 'json',
-        }).done(function (res) {
-            if (!res.success || !res.extensions || res.extensions.length === 0) {
-                $tbody.html(
-                    '<tr><td colspan="5"><div class="qualid-empty">' +
-                    '<div class="empty-icon">\u260E</div>' +
-                    '<p>No local extensions found in FreePBX.</p></div></td></tr>'
-                );
-                return;
-            }
-            renderExtensions(res.extensions);
-        }).fail(function () {
-            $tbody.html('<tr><td colspan="5"><div class="qualid-alert qualid-alert-error">' +
-                '<i class="fa fa-exclamation-circle"></i> Failed to load extensions.</div></td></tr>');
-        });
-    }
-
-    function renderExtensions(extensions) {
-        var $tbody = $('#qualid-extensions-body');
-        $tbody.empty();
-
-        extensions.forEach(function (ext) {
-            var isOnline = ext.status === 'online';
-            var badge    = isOnline
-                ? '<span class="reg-badge provisioned"><span class="dot"></span>Online</span>'
-                : '<span class="reg-badge offline"><span class="dot"></span>Offline</span>';
-
-            var $row = $(
-                '<tr>' +
-                '<td style="font-family:monospace;font-weight:700;color:#1a7fff;">' + escHtml(ext.extension) + '</td>' +
-                '<td>' + escHtml(ext.display_name || ext.name || '\u2014') + '</td>' +
-                '<td style="font-size:11px;color:#8a9db5;text-transform:uppercase;">' + escHtml(ext.type || 'pjsip') + '</td>' +
-                '<td>' + badge + '</td>' +
-                '<td>' +
-                '<button class="qualid-btn qualid-btn-outline qualid-btn-sm" style="color:#e53935;" ' +
-                'onclick="QualidRemote.deleteExtension(\'' + escHtml(ext.extension) + '\',this)">' +
-                '<i class="fa fa-trash"></i></button>' +
-                '</td>' +
-                '</tr>'
-            );
-            $tbody.append($row);
-        });
-    }
-
-    function deleteExtension(ext, btn) {
-        if (!confirm('Delete extension ' + ext + '? This cannot be undone.')) return;
-        var $btn = $(btn);
-        setButtonLoading($btn, '');
-
-        $.ajax({
-            url:    BASE_URL,
-            method: 'POST',
-            data:   { ajax_action: 'delete_extension', extension: ext },
-            dataType: 'json',
-        }).done(function (res) {
-            if (res.success) {
-                autoSync();
-            } else {
-                alert('Error: ' + (res.error || 'Could not delete extension.'));
-                resetButton($btn);
-            }
-        }).fail(function () {
-            alert('Network error.');
-            resetButton($btn);
-        });
-    }
-
-    function handleSaveExtension() {
-        var $btn    = $('#qualid-save-ext-btn');
-        var ext     = $('#qualid-new-ext').val().trim();
-        var name    = $('#qualid-new-ext-name').val().trim();
-        var secret  = $('#qualid-new-ext-secret').val().trim();
-
-        clearAlert('#qualid-add-ext-alert');
-
-        if (!ext || !name || !secret) {
-            showAlert('#qualid-add-ext-alert', 'error', 'All fields are required.');
-            return;
-        }
-
-        setButtonLoading($btn, 'Saving\u2026');
-
-        $.ajax({
-            url:    BASE_URL,
-            method: 'POST',
-            data:   { ajax_action: 'create_extension', extension: ext, display_name: name, secret: secret },
-            dataType: 'json',
-        }).done(function (res) {
-            if (res.success) {
-                $('#qualid-add-ext-form').hide();
-                $('#qualid-new-ext, #qualid-new-ext-name, #qualid-new-ext-secret').val('');
-                autoSync();
-            } else {
-                showAlert('#qualid-add-ext-alert', 'error', res.error || 'Failed to create extension.');
-                resetButton($btn);
-            }
-        }).fail(function () {
-            showAlert('#qualid-add-ext-alert', 'error', 'Network error.');
-            resetButton($btn);
-        });
-    }
-
-    // -------------------------------------------------------------------------
     // IVR Status Card
     // -------------------------------------------------------------------------
 
@@ -500,23 +276,7 @@ var QualidRemote = (function ($) {
     // -------------------------------------------------------------------------
 
     function autoSync() {
-        // Refresh extension list in UI
-        loadExtensions();
-
-        // Push extensions + heartbeat to cloud
-        $.ajax({
-            url:      BASE_URL,
-            method:   'POST',
-            data:     { ajax_action: 'sync_extensions' },
-            dataType: 'json',
-        }).done(function (res) {
-            if (res.success) {
-                var now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                $('#qualid-ext-sync-badge').text('synced ' + now);
-            }
-        });
-
-        // Silently push new CDR records to cloud (incremental)
+        // Push new CDR records to cloud (incremental) + sends heartbeat
         $.ajax({
             url:      BASE_URL,
             method:   'POST',
@@ -593,39 +353,16 @@ var QualidRemote = (function ($) {
         // Test connection
         $('#qualid-test-btn').on('click', testConnection);
 
-        // Refresh agents
-        $('#qualid-refresh-agents').on('click', loadAgents);
-
         // IVR status refresh
-        $('#qualid-ivr-refresh-btn').on('click', function () {
-            loadIvrStatus();
-            autoSync();
-        });
-
-        // Extension add/cancel
-        $('#qualid-add-ext-btn').on('click', function () {
-            $('#qualid-add-ext-form').toggle();
-        });
-        $('#qualid-cancel-ext-btn').on('click', function () {
-            $('#qualid-add-ext-form').hide();
-            clearAlert('#qualid-add-ext-alert');
-        });
-        $('#qualid-save-ext-btn').on('click', handleSaveExtension);
-        $('#qualid-new-ext-secret').on('keydown', function (e) {
-            if (e.key === 'Enter') handleSaveExtension();
-        });
+        $('#qualid-ivr-refresh-btn').on('click', loadIvrStatus);
 
         // Copy SIP domain
         $('#qualid-copy-domain').on('click', function () {
             copyToClipboard($(this).data('value'), $(this));
         });
 
-        // Auto-load when connected
-        if ($('#qualid-agents-body').length) {
-            loadAgents();
-        }
-        if ($('#qualid-extensions-body').length) {
-            // Load extensions immediately, then auto-sync every 5 minutes
+        // Auto-sync CDR + IVR status on page load, then every 5 minutes
+        if ($('#qualid-ivr-status-card').length) {
             autoSync();
             loadIvrStatus();
             setInterval(function () {
@@ -668,12 +405,8 @@ var QualidRemote = (function ($) {
     }
 
     return {
-        init:            init,
-        provisionAgent:  provisionAgent,
-        copyAgentSip:    copyAgentSip,
-        switchTab:       switchTab,
-        deleteExtension: deleteExtension,
-        checkForUpdate:  checkForUpdate,
+        init:           init,
+        checkForUpdate: checkForUpdate,
     };
 
 }(jQuery));

@@ -134,64 +134,6 @@ if (isset($_GET['qual_ajax'])) {
             echo json_encode(['success' => true]);
             exit;
 
-        // -- Get agents -------------------------------------------------------
-        case 'get_agents':
-            $token = qualid_get('token');
-            if (!$token) {
-                echo json_encode(['success' => false, 'agents' => []]);
-                exit;
-            }
-
-            $api_agents  = qualid_fetch_agents($token);
-            $provisioned = qualid_get('provisioned_agents', []);
-            $sip_domain  = qualid_get('sip_domain', '');
-
-            $merged = [];
-            foreach ($api_agents as $agent) {
-                $id   = (string) (isset($agent['id']) ? $agent['id'] : '');
-                $code = isset($agent['agent_code']) ? $agent['agent_code'] : '';
-                $prov = isset($provisioned[$id]) ? $provisioned[$id] : null;
-
-                $merged[] = [
-                    'id'           => $id,
-                    'name'         => isset($agent['name'])   ? $agent['name']   : '',
-                    'agent_code'   => $code,
-                    'active'       => isset($agent['active']) ? $agent['active'] : 0,
-                    'sip_username' => $prov ? $code : null,
-                    'sip_domain'   => $prov ? $sip_domain : null,
-                    'registered'   => false,
-                ];
-            }
-
-            echo json_encode(['success' => true, 'agents' => $merged]);
-            exit;
-
-        // -- Provision single agent -------------------------------------------
-        case 'provision_agent':
-            $token      = qualid_get('token');
-            $agent_id   = trim(isset($_POST['agent_id'])   ? $_POST['agent_id']   : '');
-            $agent_name = trim(isset($_POST['agent_name']) ? $_POST['agent_name'] : '');
-            $agent_code = trim(isset($_POST['agent_code']) ? $_POST['agent_code'] : '');
-
-            if (!$token || !$agent_id || !$agent_code) {
-                echo json_encode(['success' => false, 'error' => 'Not configured or missing agent data.']);
-                exit;
-            }
-
-            $result = qualid_provision_agent($token, $agent_id, $agent_name, $agent_code);
-
-            if (isset($result['success']) && $result['success']) {
-                $provisioned = qualid_get('provisioned_agents', []);
-                $provisioned[$agent_id] = [
-                    'agent_code' => $agent_code,
-                    'name'       => $agent_name,
-                ];
-                qualid_set('provisioned_agents', $provisioned);
-            }
-
-            echo json_encode($result);
-            exit;
-
         // -- Test connection --------------------------------------------------
         case 'test_connection':
             $token = qualid_get('token');
@@ -199,58 +141,13 @@ if (isset($_GET['qual_ajax'])) {
                 echo json_encode(['success' => false, 'error' => 'Not connected.']);
                 exit;
             }
-            $agents = qualid_fetch_agents($token);
-            if (is_array($agents)) {
+            // Ping the Quali-D API with the stored token
+            $ping = qualid_curl_post(QUALID_MAIN_API . '/ping', [], ['Authorization: Bearer ' . $token]);
+            if (is_array($ping) && !isset($ping['_error'])) {
                 echo json_encode(['success' => true, 'registered' => true]);
             } else {
                 echo json_encode(['success' => false, 'error' => 'Token may be expired. Please reconnect.']);
             }
-            exit;
-
-        // -- Get local extensions (FreePBX DB + AMI status) -------------------
-        case 'get_local_extensions':
-            $extensions = qualid_get_local_extensions();
-            echo json_encode(['success' => true, 'extensions' => $extensions]);
-            exit;
-
-        // -- Create a new local extension -------------------------------------
-        case 'create_extension':
-            $ext          = trim(isset($_POST['extension'])    ? $_POST['extension']    : '');
-            $display_name = trim(isset($_POST['display_name']) ? $_POST['display_name'] : '');
-            $secret       = trim(isset($_POST['secret'])       ? $_POST['secret']       : '');
-
-            if (!$ext || !$display_name || !$secret) {
-                echo json_encode(['success' => false, 'error' => 'Extension, name, and password are required.']);
-                exit;
-            }
-            echo json_encode(qualid_create_extension($ext, $display_name, $secret));
-            exit;
-
-        // -- Delete a local extension -----------------------------------------
-        case 'delete_extension':
-            $ext = trim(isset($_POST['extension']) ? $_POST['extension'] : '');
-            if (!$ext) {
-                echo json_encode(['success' => false, 'error' => 'Extension number required.']);
-                exit;
-            }
-            echo json_encode(qualid_delete_extension($ext));
-            exit;
-
-        // -- Sync extensions to QUALI-D cloud ---------------------------------
-        case 'sync_extensions':
-            $token = qualid_get('token');
-            if (!$token) {
-                echo json_encode(['success' => false, 'error' => 'Not connected.']);
-                exit;
-            }
-            $extensions = qualid_get_local_extensions();
-            // Also send heartbeat alongside sync
-            qualid_send_heartbeat($token);
-            $result = qualid_sync_extensions_to_qualid($token, $extensions);
-            echo json_encode(array_merge(
-                is_array($result) ? $result : ['success' => false],
-                ['extension_count' => count($extensions)]
-            ));
             exit;
 
         // -- IVR connection status check --------------------------------------
@@ -263,13 +160,14 @@ if (isset($_GET['qual_ajax'])) {
             ));
             exit;
 
-        // -- Sync CDR records to QUALI-D cloud --------------------------------
+        // -- Sync CDR records to QUALI-D cloud (also sends heartbeat) ---------
         case 'sync_cdr':
             $token = qualid_get('token');
             if (!$token) {
                 echo json_encode(['success' => false, 'error' => 'Not connected.']);
                 exit;
             }
+            qualid_send_heartbeat($token);
             echo json_encode(qualid_sync_cdr_to_qualid($token));
             exit;
 
@@ -562,143 +460,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
 
     <div class="col-md-7">
 
-        <!-- Tab bar (Agents / Extensions) -->
-        <div class="qualid-tab-bar" style="<?= $is_connected ? '' : 'opacity:0.5;pointer-events:none;' ?>">
-            <button class="qualid-tab-btn active" id="qtab-btn-agents"
-                    onclick="QualidRemote.switchTab('agents')">
-                <i class="fa fa-users"></i> Remote Agents
-            </button>
-            <button class="qualid-tab-btn" id="qtab-btn-extensions"
-                    onclick="QualidRemote.switchTab('extensions')">
-                <i class="fa fa-phone-square"></i> Extensions
-            </button>
-        </div>
-
-        <!-- Agents Card -->
-        <div class="qualid-card qualid-tab-panel" id="qtab-agents"
-             style="<?= $is_connected ? '' : 'opacity:0.5;pointer-events:none;' ?>">
-            <div class="qualid-card-header">
-                <h3>
-                    <span class="card-icon"><i class="fa fa-users"></i></span>
-                    Remote Agents
-                    <?php if (!$is_connected): ?>
-                        <span style="font-size:11px;color:#a0b0c0;font-weight:400;margin-left:8px;">(connect first)</span>
-                    <?php endif; ?>
-                </h3>
-                <?php if ($is_connected): ?>
-                <button class="qualid-btn qualid-btn-outline qualid-btn-sm" id="qualid-refresh-agents">
-                    <i class="fa fa-refresh"></i> Refresh
-                </button>
-                <?php endif; ?>
-            </div>
-            <div class="qualid-card-body" style="padding:0;">
-
-                <?php if (!$is_connected): ?>
-                <div class="qualid-empty">
-                    <div class="empty-icon">🔌</div>
-                    <p>Connect to QUALI-D first to manage agents.</p>
-                </div>
-                <?php else: ?>
-                <table class="qualid-agent-table">
-                    <thead>
-                        <tr>
-                            <th>Agent Name</th>
-                            <th>Agent Code</th>
-                            <th>SIP / Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="qualid-agents-body">
-                        <tr>
-                            <td colspan="4" class="text-center" style="padding:30px;color:#8a9db5;">
-                                <span class="qualid-spinner dark"></span> Loading…
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <?php endif; ?>
-
-            </div>
-        </div>
-
-        <!-- Extensions Card -->
-        <div class="qualid-card qualid-tab-panel" id="qtab-extensions" style="display:none;">
-            <div class="qualid-card-header">
-                <h3>
-                    <span class="card-icon"><i class="fa fa-phone-square"></i></span>
-                    Local Extensions
-                    <span id="qualid-ext-sync-badge"
-                          style="font-size:10px;color:#8a9db5;font-weight:400;margin-left:8px;"></span>
-                </h3>
-                <?php if ($is_connected): ?>
-                <button class="qualid-btn qualid-btn-primary qualid-btn-sm" id="qualid-add-ext-btn">
-                    <i class="fa fa-plus"></i> Add Extension
-                </button>
-                <?php endif; ?>
-            </div>
-
-            <!-- Add Extension form (hidden by default) -->
-            <div id="qualid-add-ext-form" style="display:none;padding:14px 16px;border-bottom:1px solid #e8edf5;background:#f7f9fc;">
-                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-                    <div style="flex:0 0 90px;">
-                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">Extension #</label>
-                        <input type="text" id="qualid-new-ext" class="form-control"
-                               placeholder="e.g. 1005" maxlength="6"
-                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
-                    </div>
-                    <div style="flex:1;min-width:120px;">
-                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">Display Name</label>
-                        <input type="text" id="qualid-new-ext-name" class="form-control"
-                               placeholder="e.g. John Smith"
-                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
-                    </div>
-                    <div style="flex:1;min-width:120px;">
-                        <label style="font-size:11px;font-weight:600;color:#4a5a70;display:block;margin-bottom:4px;">SIP Password</label>
-                        <input type="text" id="qualid-new-ext-secret" class="form-control"
-                               placeholder="Strong password"
-                               style="font-size:13px;border:2px solid #dde5f0;border-radius:8px;">
-                    </div>
-                    <div style="display:flex;gap:6px;">
-                        <button class="qualid-btn qualid-btn-primary qualid-btn-sm" id="qualid-save-ext-btn">
-                            <i class="fa fa-check"></i> Save
-                        </button>
-                        <button class="qualid-btn qualid-btn-outline qualid-btn-sm" id="qualid-cancel-ext-btn">
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-                <div id="qualid-add-ext-alert" style="margin-top:8px;"></div>
-            </div>
-
-            <div class="qualid-card-body" style="padding:0;">
-                <?php if (!$is_connected): ?>
-                <div class="qualid-empty">
-                    <div class="empty-icon">🔌</div>
-                    <p>Connect to QUALI-D first.</p>
-                </div>
-                <?php else: ?>
-                <table class="qualid-agent-table">
-                    <thead>
-                        <tr>
-                            <th>Extension</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="qualid-extensions-body">
-                        <tr>
-                            <td colspan="5" class="text-center" style="padding:30px;color:#8a9db5;">
-                                <span class="qualid-spinner dark"></span> Loading&hellip;
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <?php endif; ?>
-            </div>
-        </div>
-
         <!-- Quick Setup Guide -->
         <div class="qualid-card">
             <div class="qualid-card-header">
@@ -710,10 +471,8 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
             <div class="qualid-card-body">
                 <ol style="font-size:13px;color:#3a4a60;padding-left:20px;margin:0;line-height:2;">
                     <li>Login with your <strong>Quali-D account</strong> and click <strong>Login &amp; Connect</strong>.</li>
-                    <li>Click <strong>Provision</strong> next to each agent who will work remotely.</li>
-                    <li>In your <strong>Ring Groups</strong> or <strong>Queues</strong>, use the agent's <strong>agent code</strong> as the SIP username via the <em>QualidRemote</em> trunk.</li>
-                    <li>The agent installs the <strong>Quali-D mobile app</strong> and logs in with their agent code.</li>
-                    <li>Calls route: <strong>PSTN → FreePBX → Quali-D Cloud → Agent App</strong>, all over port 443.</li>
+                    <li>In the <strong>Quali-D Dashboard</strong>, assign each agent their FreePBX extension and SIP password.</li>
+                    <li>The agent opens the <strong>Quali-D softphone</strong> — SIP credentials load automatically.</li>
                 </ol>
 
                 <hr class="qualid-divider">
@@ -722,7 +481,7 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                     <a href="https://quali-d.com" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
                         <i class="fa fa-external-link"></i> QUALI-D Dashboard
                     </a>
-                    <a href="https://quali-d.com/docs/remote-agent" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
+                    <a href="https://quali-d.com/docs" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
                         <i class="fa fa-book"></i> Documentation
                     </a>
                     <a href="https://quali-d.com/support" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">

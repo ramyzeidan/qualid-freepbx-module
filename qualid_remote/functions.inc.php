@@ -64,7 +64,6 @@ function qualid_get_all() {
         'connected'          => qualid_get('connected',          '0'),
         'connected_at'       => qualid_get('connected_at',       ''),
         'last_error'         => qualid_get('last_error',         ''),
-        'provisioned_agents' => qualid_get('provisioned_agents', []),
         'agi_secret'         => qualid_get('agi_secret',         ''),
     ];
 }
@@ -152,40 +151,7 @@ function qualid_verify_totp($temp_token, $code) {
 }
 
 // ---------------------------------------------------------------------------
-// QUALI-D Main API — Agents
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch all agents for the account (agent_role_id=1 hardcoded).
- * Returns a plain array of agent objects.
- */
-function qualid_fetch_agents($token) {
-    $ch = curl_init(QUALID_MAIN_API . '/agents/list');
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => json_encode(['agent_role_id' => 1]),
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $token,
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_SSL_VERIFYPEER => true,
-    ]);
-    $raw = curl_exec($ch);
-    $err = curl_error($ch);
-    curl_close($ch);
-
-    if ($err || !$raw) return [];
-    $data = json_decode($raw, true);
-    if (!is_array($data)) return [];
-    // Response is a direct JSON array (not wrapped in success/agents)
-    if (isset($data[0])) return $data;
-    return isset($data['agents']) ? $data['agents'] : [];
-}
-
-// ---------------------------------------------------------------------------
-// QUALI-D Relay Server — Provisioning
+// QUALI-D Relay Server — Trunk Provisioning
 // ---------------------------------------------------------------------------
 
 /**
@@ -205,24 +171,6 @@ function qualid_provision_trunk($token) {
         return ['success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Trunk provisioning failed'];
     }
     return ['success' => true, 'data' => $data];
-}
-
-/**
- * Provision SIP credentials for a specific agent.
- * The relay server uses agent_code as SIP username and password.
- */
-function qualid_provision_agent($token, $agent_id, $agent_name, $agent_code) {
-    $data = qualid_curl_post(QUALID_RELAY_URL . '/api/agent/sip-credentials', [
-        'bearer_token' => $token,
-        'agent_id'     => (string) $agent_id,
-        'agent_name'   => $agent_name,
-        'agent_code'   => $agent_code,
-    ]);
-
-    if (isset($data['_error'])) {
-        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
-    }
-    return $data ? $data : ['success' => false, 'error' => 'No response'];
 }
 
 // ---------------------------------------------------------------------------
@@ -420,123 +368,6 @@ function qualid_register_agi_secret($token, $agi_secret) {
         ['agi_secret' => $agi_secret],
         ['Authorization: Bearer ' . $token]
     );
-}
-
-// ---------------------------------------------------------------------------
-// Extension Management
-// ---------------------------------------------------------------------------
-
-/**
- * Get all local FreePBX extensions with PJSIP registration status.
- * Returns array of: [{extension, display_name, type, status}]
- */
-function qualid_get_local_extensions() {
-    $extensions = [];
-
-    // Query FreePBX core users table via PDO (avoids PEAR DB dependency)
-    try {
-        $pdo  = FreePBX::create()->Database;
-        $stmt = $pdo->prepare("SELECT extension, name FROM users ORDER BY extension+0");
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) {
-        $rows = [];
-    }
-    if (!is_array($rows)) $rows = [];
-
-    // Get registered extensions from Asterisk CLI
-    $registered = qualid_get_registered_pjsip_extensions();
-
-    foreach ($rows as $row) {
-        $ext          = (string) $row['extension'];
-        $extensions[] = [
-            'extension'    => $ext,
-            'display_name' => $row['name'],
-            'name'         => $row['name'],
-            'type'         => 'pjsip',
-            'status'       => isset($registered[$ext]) ? 'online' : 'offline',
-        ];
-    }
-
-    return $extensions;
-}
-
-/**
- * Parse `asterisk -rx "pjsip show contacts"` to find registered (available) extensions.
- * Returns associative array: ['1001' => true, ...]
- */
-function qualid_get_registered_pjsip_extensions() {
-    $registered = [];
-    $output = @shell_exec('asterisk -rx "pjsip show contacts" 2>/dev/null');
-    if (!$output) return $registered;
-
-    foreach (explode("\n", $output) as $line) {
-        // Lines look like:  " 1001/sip:1001@...    <hash>  3600  Avail  0.500"
-        // An extension is "online" if its contact line contains "Avail" but NOT "Unavail"
-        if (preg_match('/^\s+(\d{2,6})\s*[\/:]/', $line, $m)) {
-            if (stripos($line, 'Avail') !== false && stripos($line, 'Unavail') === false) {
-                $registered[$m[1]] = true;
-            }
-        }
-    }
-
-    return $registered;
-}
-
-/**
- * Create a new local FreePBX PJSIP extension via FreePBX Core BMO.
- * Returns ['success'=>true] or ['success'=>false, 'error'=>'...']
- */
-function qualid_create_extension($extension, $display_name, $secret) {
-    if (!preg_match('/^\d{2,6}$/', $extension)) {
-        return ['success' => false, 'error' => 'Extension must be 2-6 digits'];
-    }
-
-    try {
-        $fpbx = FreePBX::create();
-        $chk  = $fpbx->Database->prepare("SELECT extension FROM users WHERE extension = ?");
-        $chk->execute([$extension]);
-        if ($chk->fetchColumn()) {
-            return ['success' => false, 'error' => 'Extension ' . $extension . ' already exists'];
-        }
-        $fpbx->Core->addUser($extension, $display_name, [
-            'tech'   => 'pjsip',
-            'secret' => $secret,
-        ]);
-        needreload();
-        return ['success' => true];
-    } catch (Exception $e) {
-        return ['success' => false, 'error' => $e->getMessage()];
-    }
-}
-
-/**
- * Delete a local FreePBX extension.
- */
-function qualid_delete_extension($extension) {
-    try {
-        FreePBX::create()->Core->delUser($extension);
-        needreload();
-        return ['success' => true];
-    } catch (Exception $e) {
-        return ['success' => false, 'error' => $e->getMessage()];
-    }
-}
-
-/**
- * Push the current extension list to the QUALI-D cloud API.
- * Stores last_sync_at timestamp in config.json on success.
- */
-function qualid_sync_extensions_to_qualid($token, $extensions) {
-    $result = qualid_curl_post(
-        QUALID_MAIN_API . '/extensions/sync',
-        ['extensions' => $extensions],
-        ['Authorization: Bearer ' . $token]
-    );
-    if (isset($result['success']) && $result['success']) {
-        qualid_set('last_sync_at', date('Y-m-d H:i:s'));
-    }
-    return $result;
 }
 
 /**
