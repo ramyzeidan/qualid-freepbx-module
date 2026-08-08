@@ -262,6 +262,16 @@ if (isset($_GET['qual_ajax'])) {
             ));
             exit;
 
+        // -- Check GitHub for a newer release ---------------------------------
+        case 'check_update':
+            echo json_encode(qualid_check_github_update());
+            exit;
+
+        // -- Download + extract the latest release from GitHub ----------------
+        case 'do_update':
+            echo json_encode(qualid_do_github_update());
+            exit;
+
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action.']);
             exit;
@@ -295,6 +305,14 @@ $is_connected = $status['status'] === 'connected';
     </div>
     <div class="qualid-hero-badge">
         <span class="qualid-version">v1.0.20</span>
+        <span id="qualid-update-badge" style="display:none;margin-left:8px;">
+            <button id="qualid-do-update-btn"
+                    class="btn btn-xs btn-warning"
+                    style="font-size:11px;padding:2px 8px;border-radius:10px;">
+                <i class="fa fa-arrow-circle-up"></i>
+                <span id="qualid-update-label">Update available</span>
+            </button>
+        </span>
         <span class="qualid-status-pill <?= htmlspecialchars($status['status']) ?>">
             <span class="status-dot"></span>
             <?= htmlspecialchars($status['label']) ?>

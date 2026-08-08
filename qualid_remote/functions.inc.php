@@ -19,6 +19,8 @@ define('QUALID_CONTEXT',       'qualid-remote-agents');
 define('QUALID_IVR_CONF',      '/etc/asterisk/qualid_ivr.conf');
 define('QUALID_AGI_BIN',       '/var/lib/asterisk/agi-bin/qualid_ivr.php');
 define('QUALID_AGI_SRC',       dirname(__FILE__) . '/agi/qualid_ivr.php');
+define('QUALID_GITHUB_REPO',   'ramyzeidan/qualid-freepbx-module');
+define('QUALID_MODULE_DIR',    dirname(__FILE__));
 
 // ---------------------------------------------------------------------------
 // Config storage (JSON file — no FreePBX API dependency)
@@ -584,4 +586,102 @@ function qualid_test_ivr_connection() {
         'agi_secret_set' => !empty($agi_secret),
         'last_sync'      => $last_sync,
     ];
+}
+
+// ---------------------------------------------------------------------------
+// Self-update from GitHub releases
+// ---------------------------------------------------------------------------
+
+/**
+ * Check GitHub for a newer release than the currently installed version.
+ */
+function qualid_check_github_update() {
+    $xml = @simplexml_load_file(QUALID_MODULE_DIR . '/module.xml');
+    $currentVersion = $xml ? trim((string) $xml->version) : '0.0.0';
+
+    $ch = curl_init('https://api.github.com/repos/' . QUALID_GITHUB_REPO . '/releases/latest');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_HTTPHEADER     => ['User-Agent: qualid-freepbx-module'],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if (!$response || $httpCode !== 200) {
+        return ['success' => false, 'error' => 'Could not reach GitHub (HTTP ' . $httpCode . ')'];
+    }
+
+    $data = json_decode($response, true);
+    if (!$data || empty($data['tag_name'])) {
+        return ['success' => false, 'error' => 'Invalid response from GitHub'];
+    }
+
+    $latestVersion  = ltrim($data['tag_name'], 'v');
+    $updateAvailable = version_compare($latestVersion, $currentVersion, '>');
+
+    return [
+        'success'          => true,
+        'current_version'  => $currentVersion,
+        'latest_version'   => $latestVersion,
+        'update_available' => $updateAvailable,
+    ];
+}
+
+/**
+ * Download the latest release tar.gz from GitHub and extract it in place.
+ */
+function qualid_do_github_update() {
+    $downloadUrl = 'https://github.com/' . QUALID_GITHUB_REPO . '/releases/latest/download/qualid_remote.tar.gz';
+    $modulesDir  = dirname(QUALID_MODULE_DIR); // /var/www/html/admin/modules
+    $tmp         = sys_get_temp_dir() . '/qualid_update_' . time() . '.tar.gz';
+
+    // Download
+    $ch = curl_init($downloadUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 120,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_HTTPHEADER     => ['User-Agent: qualid-freepbx-module'],
+    ]);
+    $data     = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if (!$data || $httpCode !== 200) {
+        return ['success' => false, 'error' => 'Download failed (HTTP ' . $httpCode . ')'];
+    }
+    if (file_put_contents($tmp, $data) === false) {
+        return ['success' => false, 'error' => 'Cannot write temp file'];
+    }
+
+    // Extract — try shell tar first, fall back to PharData
+    $extracted = false;
+    $out = @shell_exec('tar -xzf ' . escapeshellarg($tmp) . ' -C ' . escapeshellarg($modulesDir) . ' 2>&1');
+    if (file_exists(QUALID_MODULE_DIR . '/module.xml')) {
+        $extracted = true;
+    }
+
+    if (!$extracted) {
+        try {
+            $phar = new PharData($tmp);
+            $phar->extractTo($modulesDir, null, true);
+            $extracted = file_exists(QUALID_MODULE_DIR . '/module.xml');
+        } catch (Exception $e) {
+            @unlink($tmp);
+            return ['success' => false, 'error' => 'Extraction failed: ' . $e->getMessage()];
+        }
+    }
+
+    @unlink($tmp);
+
+    if (!$extracted) {
+        return ['success' => false, 'error' => 'Extraction produced no files'];
+    }
+
+    needreload();
+    return ['success' => true];
 }

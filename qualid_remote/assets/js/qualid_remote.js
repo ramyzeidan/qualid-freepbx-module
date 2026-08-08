@@ -521,6 +521,24 @@ var QualidRemote = (function ($) {
     // Init
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // GitHub self-update check
+    // -------------------------------------------------------------------------
+
+    function checkForUpdate() {
+        $.ajax({
+            url:      BASE_URL,
+            method:   'GET',
+            data:     { ajax_action: 'check_update' },
+            dataType: 'json',
+        }).done(function (res) {
+            if (res.success && res.update_available) {
+                $('#qualid-update-label').text('v' + res.latest_version + ' available');
+                $('#qualid-update-badge').show();
+            }
+        });
+    }
+
     function init() {
         // Login
         $('#qualid-connect-btn').on('click', handleConnect);
@@ -585,6 +603,38 @@ var QualidRemote = (function ($) {
                 loadIvrStatus();
             }, 5 * 60 * 1000);
         }
+
+        // Check GitHub for a newer release (silently, on page load)
+        if ($('#qualid-update-badge').length) {
+            checkForUpdate();
+        }
+
+        // Update button click
+        $(document).on('click', '#qualid-do-update-btn', function () {
+            var $btn = $(this);
+            if (!confirm('Update Quali-D Connect to the latest version from GitHub?\n\nThe page will reload after the update.')) return;
+            $btn.prop('disabled', true);
+            $('#qualid-update-label').text('Updating...');
+            $.ajax({
+                url:      BASE_URL,
+                method:   'POST',
+                data:     { ajax_action: 'do_update' },
+                dataType: 'json',
+            }).done(function (res) {
+                if (res.success) {
+                    $('#qualid-update-label').text('Done! Reloading...');
+                    setTimeout(function () { location.reload(); }, 1500);
+                } else {
+                    alert('Update failed: ' + (res.error || 'Unknown error'));
+                    $btn.prop('disabled', false);
+                    $('#qualid-update-label').text('Update available');
+                }
+            }).fail(function () {
+                alert('Update request failed. Check server logs.');
+                $btn.prop('disabled', false);
+                $('#qualid-update-label').text('Update available');
+            });
+        });
     }
 
     return {
