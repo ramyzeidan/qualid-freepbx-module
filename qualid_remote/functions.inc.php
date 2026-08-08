@@ -414,7 +414,7 @@ function qualid_remove_agi_files() {
  */
 function qualid_register_agi_secret($token, $agi_secret) {
     return qualid_curl_post(
-        QUALID_MAIN_API . '/api/ivr/set-agi-secret',
+        QUALID_MAIN_API . '/ivr/set-agi-secret',
         ['agi_secret' => $agi_secret],
         ['Authorization: Bearer ' . $token]
     );

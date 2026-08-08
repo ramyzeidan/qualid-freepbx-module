@@ -14,11 +14,11 @@
  *    same => n,Hangup()
  *
  * This script is intentionally a "dumb executor":
- *  - It calls POST /api/ivr/agi/start to open a session and get the first instruction.
+ *  - It calls POST /ivr/agi/start to open a session and get the first instruction.
  *  - It executes the instruction using Asterisk AGI commands.
- *  - It calls POST /api/ivr/agi/step with the result and gets the next instruction.
+ *  - It calls POST /ivr/agi/step with the result and gets the next instruction.
  *  - It loops until the instruction is { action: hangup } or { action: transfer }.
- *  - On any call end it calls POST /api/ivr/agi/end.
+ *  - On any call end it calls POST /ivr/agi/end.
  *
  * Configuration (set these three lines at the top):
  */
@@ -120,7 +120,7 @@ agi('ANSWER');
 agi('SET VARIABLE CHANNEL_ANSWERED 1');
 
 // ─ Start session ─────────────────────────────────────────────────────────────
-$start_resp = api_post('/api/ivr/agi/start', [
+$start_resp = api_post('/ivr/agi/start', [
     'caller_id' => $caller_id,
     'did'       => $did,
 ]);
@@ -160,7 +160,7 @@ while (true) {
     if ($action === 'wait') {
         $secs = (int) ($instruction['duration'] ?? 2);
         agi("EXEC Wait {$secs}");
-        $step_resp   = api_post('/api/ivr/agi/step', [
+        $step_resp   = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => 'done',
             'event_data' => null,
@@ -178,7 +178,7 @@ while (true) {
         } else {
             agi('EXEC Wait 1');
         }
-        $step_resp   = api_post('/api/ivr/agi/step', [
+        $step_resp   = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => 'done',
             'event_data' => null,
@@ -215,7 +215,7 @@ while (true) {
         if ($tmp) @unlink($tmp);
 
         $event     = ($key === '') ? 'timeout' : 'dtmf';
-        $step_resp = api_post('/api/ivr/agi/step', [
+        $step_resp = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => $event,
             'event_data' => $key ?: null,
@@ -245,14 +245,14 @@ while (true) {
             $b64 = base64_encode(file_get_contents($rec_file . '.wav'));
             @unlink($rec_file . '.wav');
 
-            $step_resp   = api_post('/api/ivr/agi/step', [
+            $step_resp   = api_post('/ivr/agi/step', [
                 'session_id'     => $session_id,
                 'event'          => 'speech',
                 'event_data'     => $b64,
                 'event_encoding' => 'base64_wav',
             ]);
         } else {
-            $step_resp = api_post('/api/ivr/agi/step', [
+            $step_resp = api_post('/ivr/agi/step', [
                 'session_id' => $session_id,
                 'event'      => 'timeout',
                 'event_data' => null,
@@ -304,7 +304,7 @@ while (true) {
         }
         @unlink($rec_file);
 
-        $step_resp   = api_post('/api/ivr/agi/step', [
+        $step_resp   = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => 'done',
             'event_data' => null,
@@ -319,7 +319,7 @@ while (true) {
 
 // ─ End session ────────────────────────────────────────────────────────────────
 if ($session_id) {
-    api_post('/api/ivr/agi/end', [
+    api_post('/ivr/agi/end', [
         'session_id'   => $session_id,
         'hangup_cause' => $hangup_cause,
     ]);
