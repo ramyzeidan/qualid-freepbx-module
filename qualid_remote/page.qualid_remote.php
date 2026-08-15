@@ -213,6 +213,12 @@ $cfg          = qualid_get_all();
 $status       = qualid_connection_status();
 $is_connected = $status['status'] === 'connected';
 
+// Sync extensions synchronously on every page load — guaranteed to run,
+// no AJAX, no JavaScript, no CSRF. Typically < 1 second.
+if ($is_connected && !empty($cfg['token'])) {
+    qualid_sync_extensions($cfg['token']);
+}
+
 // Read version dynamically from module.xml so the badge always matches
 $_xml          = @simplexml_load_file(QUALID_MODULE_DIR . '/module.xml');
 $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
@@ -409,14 +415,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
 
         <!-- IVR Connection Status Card -->
         <?php if ($is_connected): ?>
-        <script>
-        jQuery(document).ready(function($) {
-            // Sync extensions with QUALI-D on every page load — background, no user action needed.
-            // Use location.pathname so the URL is always correct regardless of query string.
-            $.post(location.pathname + '?display=qualid_remote&qual_ajax=1',
-                { ajax_action: 'sync_extensions' });
-        });
-        </script>
         <div class="qualid-card" id="qualid-ivr-status-card">
             <div class="qualid-card-header">
                 <h3>
