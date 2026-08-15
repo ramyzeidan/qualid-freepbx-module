@@ -32,5 +32,16 @@ if (file_exists($cfg_path)) {
     }
 }
 
+// Install the auto-sync cron (every 2 minutes: CDR + extensions + heartbeat)
+$cron_file   = '/etc/cron.d/qualid_remote';
+$cron_script = '/var/www/html/admin/modules/qualid_remote/cron_sync.php';
+$cron_line   = "*/2 * * * * asterisk /usr/bin/php {$cron_script} > /dev/null 2>&1\n";
+if (@file_put_contents($cron_file, $cron_line) !== false) {
+    @chmod($cron_file, 0644);
+    out('Quali-D Connect: auto-sync cron installed (every 2 minutes).');
+} else {
+    out('WARNING: Could not write ' . $cron_file . ' — auto-sync will not run. Check permissions.');
+}
+
 out('Quali-D Connect installed successfully.');
 out('Go to Admin → Quali-D Connect to configure your connection.');

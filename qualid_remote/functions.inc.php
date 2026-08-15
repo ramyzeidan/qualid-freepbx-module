@@ -504,6 +504,56 @@ function qualid_sync_cdr_to_qualid($token) {
     );
 }
 
+/**
+ * Read all local PJSIP extensions + their live registration state from
+ * Asterisk's realtime tables, then push the list to POST /extensions/sync.
+ *
+ * Uses:
+ *   asterisk.ps_endpoints  — one row per PJSIP endpoint (local extensions only,
+ *                            filtered to numeric IDs so trunks are excluded)
+ *   asterisk.ps_contacts   — one row per registered device (id = "ext/hash")
+ */
+function qualid_sync_extensions($token) {
+    try {
+        $pdo = FreePBX::create()->Database;
+
+        $stmt = $pdo->query(
+            "SELECT
+                ep.id AS extension,
+                'pjsip' AS type,
+                CASE WHEN COUNT(c.id) > 0 THEN 'online' ELSE 'offline' END AS status
+             FROM asterisk.ps_endpoints ep
+             LEFT JOIN asterisk.ps_contacts c ON c.id LIKE CONCAT(ep.id, '/%')
+             WHERE ep.id REGEXP '^[0-9]+$'
+             GROUP BY ep.id"
+        );
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => 'DB error: ' . $e->getMessage()];
+    }
+
+    if (empty($rows)) {
+        return ['success' => true, 'synced' => 0, 'message' => 'No extensions found'];
+    }
+
+    $extensions = array_map(function ($row) {
+        return [
+            'extension'    => $row['extension'],
+            'display_name' => $row['extension'],   // use number as name; FreePBX doesn't expose a friendly name easily
+            'type'         => $row['type'],
+            'status'       => $row['status'],
+        ];
+    }, $rows);
+
+    $result = qualid_curl_post(
+        QUALID_MAIN_API . '/extensions/sync',
+        ['extensions' => $extensions],
+        ['Authorization: Bearer ' . $token]
+    );
+
+    return is_array($result) ? $result : ['success' => false, 'error' => 'Invalid API response'];
+}
+
 // ---------------------------------------------------------------------------
 // Self-update from GitHub releases
 // ---------------------------------------------------------------------------
