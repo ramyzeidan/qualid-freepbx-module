@@ -242,28 +242,8 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
     </div>
 </div>
 
-<!-- Setup Steps -->
-<div class="qualid-steps">
-    <div class="qualid-step <?= $is_connected ? 'done' : 'active' ?>">
-        <div class="qualid-step-num"><?= $is_connected ? '&#10003;' : '1' ?></div>
-        <div><strong>Connect</strong><br><span style="font-size:11px;">Login with QUALI-D</span></div>
-    </div>
-    <div class="qualid-step <?= $is_connected ? 'active' : '' ?>">
-        <div class="qualid-step-num">2</div>
-        <div><strong>Provision Agents</strong><br><span style="font-size:11px;">Assign SIP accounts</span></div>
-    </div>
-    <div class="qualid-step">
-        <div class="qualid-step-num">3</div>
-        <div><strong>Configure Queues</strong><br><span style="font-size:11px;">Route calls to agents</span></div>
-    </div>
-    <div class="qualid-step">
-        <div class="qualid-step-num">4</div>
-        <div><strong>Agent App</strong><br><span style="font-size:11px;">Install QUALI-D on Android/iOS</span></div>
-    </div>
-</div>
-
 <div class="row">
-    <div class="col-md-5">
+    <div class="col-md-7">
 
         <!-- Connection Card -->
         <div class="qualid-card">
@@ -430,12 +410,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                             <li><code>/etc/asterisk/pjsip_qualid.conf</code> — SIP/TLS trunk (port 443)</li>
                             <li><code>/etc/asterisk/extensions_qualid.conf</code> — dialplan</li>
                         </ul>
-                        <div style="margin-top:10px;font-size:12px;">
-                            To route a call to a remote agent, use:<br>
-                            <code style="background:rgba(26,127,255,0.08);padding:2px 6px;border-radius:4px;display:inline-block;margin-top:4px;">
-                                Dial(PJSIP/&lt;agent_code&gt;@QualidRemote_endpoint,60)
-                            </code>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -459,41 +433,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
             </div>
         </div>
         <?php endif; ?>
-
-    </div>
-
-    <div class="col-md-7">
-
-        <!-- Quick Setup Guide -->
-        <div class="qualid-card">
-            <div class="qualid-card-header">
-                <h3>
-                    <span class="card-icon"><i class="fa fa-book"></i></span>
-                    Quick Setup Guide
-                </h3>
-            </div>
-            <div class="qualid-card-body">
-                <ol style="font-size:13px;color:#3a4a60;padding-left:20px;margin:0;line-height:2;">
-                    <li>Login with your <strong>Quali-D account</strong> and click <strong>Login &amp; Connect</strong>.</li>
-                    <li>In the <strong>Quali-D Dashboard</strong>, assign each agent their FreePBX extension and SIP password.</li>
-                    <li>The agent opens the <strong>Quali-D softphone</strong> — SIP credentials load automatically.</li>
-                </ol>
-
-                <hr class="qualid-divider">
-
-                <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                    <a href="https://quali-d.com" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
-                        <i class="fa fa-external-link"></i> QUALI-D Dashboard
-                    </a>
-                    <a href="https://quali-d.com/docs" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
-                        <i class="fa fa-book"></i> Documentation
-                    </a>
-                    <a href="https://quali-d.com/support" target="_blank" class="qualid-btn qualid-btn-outline qualid-btn-sm">
-                        <i class="fa fa-life-ring"></i> Support
-                    </a>
-                </div>
-            </div>
-        </div>
 
     </div>
 </div>

@@ -5,9 +5,10 @@
  * Runs every 2 minutes via /etc/cron.d/qualid_remote.
  *
  * Jobs:
- *   1. Push new CDR records to QUALI-D cloud  (POST /cdr/sync)
- *   2. Push live extension registration state (POST /extensions/sync)
- *   3. Send heartbeat ping                    (POST /ivr/heartbeat)
+ *   1. Push this server's IP to QUALI-D cloud (POST /company/pbx-host)
+ *   2. Push new CDR records to QUALI-D cloud  (POST /cdr/sync)
+ *   3. Push live extension registration state (POST /extensions/sync)
+ *   4. Send heartbeat ping                    (POST /ivr/heartbeat)
  */
 
 // Bootstrap FreePBX without requiring a web session
@@ -26,6 +27,7 @@ if (empty($token)) {
     exit(0);
 }
 
+qualid_push_pbx_host($token);
 qualid_sync_cdr_to_qualid($token);
 qualid_sync_extensions($token);
 qualid_send_heartbeat($token);
