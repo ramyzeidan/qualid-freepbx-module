@@ -392,30 +392,8 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
             </div>
         </div>
 
-        <!-- Asterisk Config Card (connected only) -->
-        <?php if ($is_connected): ?>
-        <div class="qualid-card">
-            <div class="qualid-card-header">
-                <h3>
-                    <span class="card-icon"><i class="fa fa-cog"></i></span>
-                    Asterisk Configuration
-                </h3>
-            </div>
-            <div class="qualid-card-body">
-                <div class="qualid-alert qualid-alert-info" style="margin-bottom:0;">
-                    <i class="fa fa-info-circle"></i>
-                    <div>
-                        <strong>Auto-generated files:</strong>
-                        <ul style="margin:8px 0 0 0;padding-left:18px;font-size:12px;">
-                            <li><code>/etc/asterisk/pjsip_qualid.conf</code> — SIP/TLS trunk (port 443)</li>
-                            <li><code>/etc/asterisk/extensions_qualid.conf</code> — dialplan</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-
         <!-- IVR Connection Status Card -->
+        <?php if ($is_connected): ?>
         <div class="qualid-card" id="qualid-ivr-status-card">
             <div class="qualid-card-header">
                 <h3>

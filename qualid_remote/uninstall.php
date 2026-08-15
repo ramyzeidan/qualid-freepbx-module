@@ -18,10 +18,17 @@ qualid_remove_asterisk_config();
 // Remove IVR AGI script and conf file
 qualid_remove_agi_files();
 
-// Remove auto-sync cron
-$cron_file = '/etc/cron.d/qualid_remote';
-if (file_exists($cron_file)) {
-    unlink($cron_file);
+// Remove auto-sync cron entry from the user's crontab
+$cron_script = '/var/www/html/admin/modules/qualid_remote/cron_sync.php';
+$existing    = shell_exec('crontab -l 2>/dev/null') ?: '';
+if (strpos($existing, $cron_script) !== false) {
+    $lines       = explode("\n", $existing);
+    $lines       = array_filter($lines, function ($l) use ($cron_script) {
+        return strpos($l, $cron_script) === false;
+    });
+    $new_crontab = implode("\n", $lines) . "\n";
+    $ph = popen('crontab -', 'w');
+    if ($ph) { fwrite($ph, $new_crontab); pclose($ph); }
 }
 
 out('Quali-D Connect uninstalled. Asterisk configs, AGI script, and cron removed.');
