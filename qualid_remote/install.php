@@ -32,24 +32,5 @@ if (file_exists($cfg_path)) {
     }
 }
 
-// Install the auto-sync cron via the current user's crontab (no root needed).
-// Adds a */2 entry only if it isn't already present.
-$cron_script = '/var/www/html/admin/modules/qualid_remote/cron_sync.php';
-$cron_line   = "*/2 * * * * /usr/bin/php {$cron_script} > /dev/null 2>&1";
-$existing    = shell_exec('crontab -l 2>/dev/null') ?: '';
-if (strpos($existing, $cron_script) === false) {
-    $new_crontab = rtrim($existing) . "\n" . $cron_line . "\n";
-    $ph = popen('crontab -', 'w');
-    if ($ph) {
-        fwrite($ph, $new_crontab);
-        pclose($ph);
-        out('Quali-D Connect: auto-sync cron installed (every 2 minutes).');
-    } else {
-        out('WARNING: Could not install cron — auto-sync will not run.');
-    }
-} else {
-    out('Quali-D Connect: auto-sync cron already present — skipped.');
-}
-
 out('Quali-D Connect installed successfully.');
 out('Go to Admin → Quali-D Connect to configure your connection.');

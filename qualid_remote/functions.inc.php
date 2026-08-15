@@ -505,27 +505,28 @@ function qualid_sync_cdr_to_qualid($token) {
 }
 
 /**
- * Read all local PJSIP extensions + their live registration state from
- * Asterisk's realtime tables, then push the list to POST /extensions/sync.
+ * Read all local extensions from FreePBX's own devices + users tables,
+ * get live PJSIP registration status via the Asterisk CLI, then push
+ * the list to POST /extensions/sync.
  *
- * Uses:
- *   asterisk.ps_endpoints  — one row per PJSIP endpoint (local extensions only,
- *                            filtered to numeric IDs so trunks are excluded)
- *   asterisk.ps_contacts   — one row per registered device (id = "ext/hash")
+ * Works on any FreePBX installation — no realtime DB tables required.
+ * Registration status is fetched internally via `asterisk -rx` (the web
+ * user on FreePBX always has permission to run this command).
  */
 function qualid_sync_extensions($token) {
     try {
         $pdo = FreePBX::create()->Database;
 
+        // FreePBX stores extensions in the `devices` table (always present).
+        // JOIN `users` to get the friendly display name.
         $stmt = $pdo->query(
-            "SELECT
-                ep.id AS extension,
-                'pjsip' AS type,
-                CASE WHEN COUNT(c.id) > 0 THEN 'online' ELSE 'offline' END AS status
-             FROM asterisk.ps_endpoints ep
-             LEFT JOIN asterisk.ps_contacts c ON c.id LIKE CONCAT(ep.id, '/%')
-             WHERE ep.id REGEXP '^[0-9]+$'
-             GROUP BY ep.id"
+            "SELECT d.id AS extension,
+                    d.tech AS type,
+                    COALESCE(u.name, d.id) AS display_name
+             FROM devices d
+             LEFT JOIN users u ON u.extension = d.id
+             WHERE d.id REGEXP '^[0-9]+$'
+             ORDER BY CAST(d.id AS UNSIGNED)"
         );
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
@@ -536,14 +537,31 @@ function qualid_sync_extensions($token) {
         return ['success' => true, 'synced' => 0, 'message' => 'No extensions found'];
     }
 
-    $extensions = array_map(function ($row) {
-        return [
-            'extension'    => $row['extension'],
-            'display_name' => $row['extension'],   // use number as name; FreePBX doesn't expose a friendly name easily
-            'type'         => $row['type'],
-            'status'       => $row['status'],
+    // Get live PJSIP registration status via Asterisk CLI.
+    // Output format: "  101/sip:101@x.x.x.x   Avail   0.500 ..."
+    $contacts_raw = @shell_exec('asterisk -rx "pjsip show contacts" 2>/dev/null') ?: '';
+    $online = [];
+    if (!empty($contacts_raw) &&
+        preg_match_all('/^\s*(\d+)\/[^\s]+\s+Avail/m', $contacts_raw, $m)) {
+        $online = array_flip($m[1]);
+    }
+
+    $extensions = [];
+    foreach ($rows as $row) {
+        $ext  = $row['extension'];
+        $tech = strtolower($row['type']);
+        if ($tech === 'pjsip') {
+            $status = isset($online[$ext]) ? 'online' : 'offline';
+        } else {
+            $status = 'unknown';   // legacy SIP / IAX2 — status not checked
+        }
+        $extensions[] = [
+            'extension'    => $ext,
+            'display_name' => $row['display_name'],
+            'type'         => $tech,
+            'status'       => $status,
         ];
-    }, $rows);
+    }
 
     $result = qualid_curl_post(
         QUALID_MAIN_API . '/extensions/sync',
@@ -552,6 +570,24 @@ function qualid_sync_extensions($token) {
     );
 
     return is_array($result) ? $result : ['success' => false, 'error' => 'Invalid API response'];
+}
+
+// ---------------------------------------------------------------------------
+// FreePBX reload hook
+// ---------------------------------------------------------------------------
+
+/**
+ * Called automatically by FreePBX every time admin clicks "Apply Config".
+ * Syncs extensions, CDR, PBX host, and heartbeat with the QUALI-D cloud.
+ * No cron, no manual steps — fires as part of normal FreePBX workflow.
+ */
+function qualid_remote_generate_config() {
+    $token = qualid_get('token', '');
+    if (empty($token)) return;
+    qualid_push_pbx_host($token);
+    qualid_sync_extensions($token);
+    qualid_sync_cdr_to_qualid($token);
+    qualid_send_heartbeat($token);
 }
 
 // ---------------------------------------------------------------------------

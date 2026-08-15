@@ -175,6 +175,16 @@ if (isset($_GET['qual_ajax'])) {
             echo json_encode(qualid_sync_cdr_to_qualid($token));
             exit;
 
+        // -- Sync FreePBX extensions to QUALI-D cloud -------------------------
+        case 'sync_extensions':
+            $token = qualid_get('token');
+            if (!$token) {
+                echo json_encode(['success' => false, 'error' => 'Not connected.']);
+                exit;
+            }
+            echo json_encode(qualid_sync_extensions($token));
+            exit;
+
         // -- Check GitHub for a newer release ---------------------------------
         case 'check_update':
             echo json_encode(qualid_check_github_update());
@@ -393,7 +403,17 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
         </div>
 
         <!-- IVR Connection Status Card -->
-        <?php if ($is_connected): ?>
+        <?php if ($is_connected):
+            // Build the AJAX URL for this page and fire a background extension
+            // sync on every page load — no cron, no user action required.
+            $_ajax_base = strtok($_SERVER['REQUEST_URI'], '?');
+            $_ajax_url  = htmlspecialchars($_ajax_base . '?display=qualid_remote&qual_ajax=1');
+        ?>
+        <script>
+        jQuery(document).ready(function($) {
+            $.post('<?= $_ajax_url ?>', { ajax_action: 'sync_extensions' });
+        });
+        </script>
         <div class="qualid-card" id="qualid-ivr-status-card">
             <div class="qualid-card-header">
                 <h3>
