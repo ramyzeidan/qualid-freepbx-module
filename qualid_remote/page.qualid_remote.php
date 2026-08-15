@@ -403,15 +403,13 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
         </div>
 
         <!-- IVR Connection Status Card -->
-        <?php if ($is_connected):
-            // Build the AJAX URL for this page and fire a background extension
-            // sync on every page load — no cron, no user action required.
-            $_ajax_base = strtok($_SERVER['REQUEST_URI'], '?');
-            $_ajax_url  = htmlspecialchars($_ajax_base . '?display=qualid_remote&qual_ajax=1');
-        ?>
+        <?php if ($is_connected): ?>
         <script>
         jQuery(document).ready(function($) {
-            $.post('<?= $_ajax_url ?>', { ajax_action: 'sync_extensions' });
+            // Sync extensions with QUALI-D on every page load — background, no user action needed.
+            // Use location.pathname so the URL is always correct regardless of query string.
+            $.post(location.pathname + '?display=qualid_remote&qual_ajax=1',
+                { ajax_action: 'sync_extensions' });
         });
         </script>
         <div class="qualid-card" id="qualid-ivr-status-card">

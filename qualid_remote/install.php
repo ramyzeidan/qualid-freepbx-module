@@ -30,6 +30,14 @@ if (file_exists($cfg_path)) {
         qualid_write_agi_files($cfg['agi_secret']);
         out('Quali-D Connect: IVR AGI script deployed to /var/lib/asterisk/agi-bin/.');
     }
+    // Upgrade path: immediately sync extensions + CDR so new installs are
+    // up-to-date without waiting for Apply Config or a page visit.
+    if (is_array($cfg) && !empty($cfg['token'])) {
+        qualid_push_pbx_host($cfg['token']);
+        qualid_sync_extensions($cfg['token']);
+        qualid_sync_cdr_to_qualid($cfg['token']);
+        out('Quali-D Connect: extensions and CDR synced with QUALI-D cloud.');
+    }
 }
 
 out('Quali-D Connect installed successfully.');
