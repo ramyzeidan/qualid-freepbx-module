@@ -577,17 +577,26 @@ function qualid_sync_extensions($token) {
 // ---------------------------------------------------------------------------
 
 /**
- * Called automatically by FreePBX every time admin clicks "Apply Config".
- * Syncs extensions, CDR, PBX host, and heartbeat with the QUALI-D cloud.
- * No cron, no manual steps — fires as part of normal FreePBX workflow.
+ * Called automatically by FreePBX on every Apply Config / fwconsole reload.
+ *
+ * FreePBX's DialplanHooks processor scans all active modules for a function
+ * named {rawname}_get_config() and calls it at priority 100. This is the
+ * flat-PHP hook that reliably fires during config generation — no BMO class,
+ * no cron, no manual steps required.
+ *
+ * We return null (no dialplan contribution) and use this as a side-channel
+ * to push the latest extension list, CDR, PBX host, and heartbeat to the
+ * QUALI-D cloud.
  */
-function qualid_remote_generate_config() {
+function qualid_remote_get_config() {
     $token = qualid_get('token', '');
-    if (empty($token)) return;
+    if (empty($token)) return null;
+    qualid_set('last_apply_config_at', date('Y-m-d H:i:s'));
     qualid_push_pbx_host($token);
     qualid_sync_extensions($token);
     qualid_sync_cdr_to_qualid($token);
     qualid_send_heartbeat($token);
+    return null;   // no dialplan entries to contribute
 }
 
 // ---------------------------------------------------------------------------
