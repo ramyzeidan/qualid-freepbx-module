@@ -29,6 +29,12 @@ class Qualid_remote extends \FreePBX_Helpers implements \BMO {
     public function uninstall() {}
 
     /**
+     * Called by FreePBX before the admin page is rendered.
+     * No per-page initialisation is needed for this module.
+     */
+    public function doConfigPageInit($page) {}
+
+    /**
      * Called automatically by FreePBX on every Apply Config / fwconsole reload.
      * Syncs extensions, CDR, PBX host, and heartbeat with the QUALI-D cloud.
      */
