@@ -214,9 +214,9 @@ if (isset($_GET['qual_ajax'])) {
                     $cols = $pdo->query("DESCRIBE `{$t}`")->fetchAll(PDO::FETCH_ASSOC);
                     $out['describe'][$t] = $cols;
                 }
-                // Show current rows in queues table if it exists
-                if (in_array('queues', $tables)) {
-                    $out['queues_rows'] = $pdo->query("SELECT * FROM queues LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+                // Show current rows in queues_config table if it exists
+                if (in_array('queues_config', $tables)) {
+                    $out['queues_rows'] = $pdo->query("SELECT * FROM queues_config LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
                 }
             } catch (Exception $e) {
                 $out['error'] = $e->getMessage();

@@ -653,13 +653,13 @@ function qualid_sync_queues_to_freepbx_db($queues) {
 
             // Upsert the queue row
             $stmt = $pdo->prepare(
-                "INSERT INTO queues (extension, descr) VALUES (?, ?)
+                "INSERT INTO queues_config (extension, descr) VALUES (?, ?)
                  ON DUPLICATE KEY UPDATE descr = VALUES(descr)"
             );
             $stmt->execute(array($name, $display));
 
             // Replace all details for this queue
-            $pdo->prepare("DELETE FROM queue_details WHERE id = ?")->execute(array($name));
+            $pdo->prepare("DELETE FROM queues_details WHERE id = ?")->execute(array($name));
 
             $details = array(
                 'strategy'          => isset($q['strategy'])      ? $q['strategy']      : 'rrmemory',
@@ -672,7 +672,7 @@ function qualid_sync_queues_to_freepbx_db($queues) {
             );
 
             $ins = $pdo->prepare(
-                "INSERT INTO queue_details (id, keyword, data, flags) VALUES (?, ?, ?, 0)"
+                "INSERT INTO queues_details (id, keyword, data, flags) VALUES (?, ?, ?, 0)"
             );
             foreach ($details as $key => $val) {
                 $ins->execute(array($name, $key, (string) $val));
@@ -691,8 +691,8 @@ function qualid_sync_queues_to_freepbx_db($queues) {
         // Remove from FreePBX DB any queues we previously synced that are now gone
         $removed = array_diff($prev_names, $current_names);
         foreach ($removed as $old) {
-            $pdo->prepare("DELETE FROM queues       WHERE extension = ?")->execute(array($old));
-            $pdo->prepare("DELETE FROM queue_details WHERE id       = ?")->execute(array($old));
+            $pdo->prepare("DELETE FROM queues_config  WHERE extension = ?")->execute(array($old));
+            $pdo->prepare("DELETE FROM queues_details WHERE id        = ?")->execute(array($old));
         }
 
         qualid_set('synced_queue_names', $current_names);
@@ -768,8 +768,8 @@ function qualid_remove_queues() {
         try {
             $pdo = FreePBX::create()->Database;
             foreach ($prev_names as $name) {
-                $pdo->prepare("DELETE FROM queues       WHERE extension = ?")->execute(array($name));
-                $pdo->prepare("DELETE FROM queue_details WHERE id       = ?")->execute(array($name));
+                $pdo->prepare("DELETE FROM queues_config  WHERE extension = ?")->execute(array($name));
+                $pdo->prepare("DELETE FROM queues_details WHERE id       = ?")->execute(array($name));
             }
         } catch (Exception $e) {
             // Non-fatal
