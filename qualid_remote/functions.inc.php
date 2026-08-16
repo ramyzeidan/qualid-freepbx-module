@@ -592,31 +592,117 @@ function qualid_sync_extensions($token) {
 }
 
 // ---------------------------------------------------------------------------
-// Queue sync — fetch queue config from QUALI-D API + write queues_qualid.conf
+// Queue sync — fetch queue config from QUALI-D API, write to FreePBX DB
+// (so queues appear in the native FreePBX UI) and to queues_qualid.conf
+// (so Asterisk picks them up immediately without waiting for Apply Config).
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch all queues (with members) from the QUALI-D API and write them to
- * /etc/asterisk/queues_qualid.conf, included from queues_custom.conf.
- * Called on every Apply Config and on login so Asterisk always reflects the
- * dashboard configuration without any manual steps.
+ * Fetch all queues from the QUALI-D API, push them into FreePBX's own queue
+ * database tables (queues + queue_details), and write queues_qualid.conf for
+ * immediate Asterisk activation.
  */
 function qualid_sync_queues($token) {
     $result = qualid_curl_get(
         QUALID_MAIN_API . '/ivr/queues/asterisk-config',
-        ['Authorization: Bearer ' . $token]
+        array('Authorization: Bearer ' . $token)
     );
 
     if (isset($result['_error'])) {
-        return ['success' => false, 'error' => 'Network error: ' . $result['_error']];
+        return array('success' => false, 'error' => 'Network error: ' . $result['_error']);
     }
     if (empty($result['success'])) {
-        return ['success' => false, 'error' => 'API error fetching queue config'];
+        return array('success' => false, 'error' => 'API error fetching queue config');
     }
 
-    $queues = isset($result['queues']) ? $result['queues'] : [];
+    $queues = isset($result['queues']) ? $result['queues'] : array();
+
+    // Write Asterisk conf for immediate effect (before any Apply Config click)
     qualid_write_queues($queues);
-    return ['success' => true, 'queues' => count($queues)];
+
+    // Write into FreePBX's own DB so queues appear in display=queues
+    qualid_sync_queues_to_freepbx_db($queues);
+
+    return array('success' => true, 'queues' => count($queues));
+}
+
+/**
+ * Upsert queues into FreePBX's native queue tables so they appear in
+ * Admin → Queues (display=queues) alongside any FreePBX-created queues.
+ * Cleans up queues that were previously synced but have since been deleted.
+ * Non-fatal — if the DB write fails the Asterisk conf still works.
+ */
+function qualid_sync_queues_to_freepbx_db($queues) {
+    try {
+        $pdo = FreePBX::create()->Database;
+    } catch (Exception $e) {
+        return; // FreePBX PDO unavailable
+    }
+
+    try {
+        $prev_names = qualid_get('synced_queue_names', array());
+        if (!is_array($prev_names)) { $prev_names = array(); }
+        $current_names = array();
+
+        foreach ($queues as $q) {
+            $name = preg_replace('/[^a-z0-9_-]/', '', strtolower($q['name']));
+            if (!$name) continue;
+            $current_names[] = $name;
+
+            $display = isset($q['display_name']) ? $q['display_name'] : $name;
+
+            // Upsert the queue row
+            $stmt = $pdo->prepare(
+                "INSERT INTO queues (extension, descr) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE descr = VALUES(descr)"
+            );
+            $stmt->execute(array($name, $display));
+
+            // Replace all details for this queue
+            $pdo->prepare("DELETE FROM queue_details WHERE id = ?")->execute(array($name));
+
+            $details = array(
+                'strategy'          => isset($q['strategy'])      ? $q['strategy']      : 'rrmemory',
+                'timeout'           => isset($q['timeout'])       ? (int) $q['timeout'] : 30,
+                'maxlen'            => isset($q['maxlen'])        ? (int) $q['maxlen']  : 0,
+                'wrapuptime'        => isset($q['wrapuptime'])    ? (int) $q['wrapuptime'] : 0,
+                'musicclass'        => isset($q['music_on_hold']) ? $q['music_on_hold'] : 'default',
+                'announce-holdtime' => !empty($q['announce_holdtime']) ? 'yes' : 'no',
+                'announce-position' => !empty($q['announce_position']) ? 'yes' : 'no',
+            );
+
+            $ins = $pdo->prepare(
+                "INSERT INTO queue_details (id, keyword, data, flags) VALUES (?, ?, ?, 0)"
+            );
+            foreach ($details as $key => $val) {
+                $ins->execute(array($name, $key, (string) $val));
+            }
+
+            // Members
+            $members = isset($q['members']) ? $q['members'] : array();
+            foreach ($members as $ext) {
+                $clean = preg_replace('/[^0-9]/', '', $ext);
+                if ($clean) {
+                    $ins->execute(array($name, 'member', 'PJSIP/' . $clean));
+                }
+            }
+        }
+
+        // Remove from FreePBX DB any queues we previously synced that are now gone
+        $removed = array_diff($prev_names, $current_names);
+        foreach ($removed as $old) {
+            $pdo->prepare("DELETE FROM queues       WHERE extension = ?")->execute(array($old));
+            $pdo->prepare("DELETE FROM queue_details WHERE id       = ?")->execute(array($old));
+        }
+
+        qualid_set('synced_queue_names', $current_names);
+
+        // Mark FreePBX as needing Apply Config (updates the banner in the UI)
+        if (function_exists('needreload')) { needreload(); }
+
+    } catch (Exception $e) {
+        // Non-fatal
+    }
 }
 
 /**
@@ -659,10 +745,11 @@ function qualid_write_queues($queues) {
 }
 
 /**
- * Remove the queue config file and its #include line.
- * Called on uninstall and disconnect.
+ * Remove the queue conf file, its #include line, and all queue records from
+ * FreePBX's own database.  Called on uninstall and disconnect.
  */
 function qualid_remove_queues() {
+    // Remove Asterisk custom conf
     $f = '/etc/asterisk/queues_qualid.conf';
     if (file_exists($f)) unlink($f);
 
@@ -673,6 +760,21 @@ function qualid_remove_queues() {
             return strpos($line, 'queues_qualid') === false;
         });
         file_put_contents($custom, implode("\n", $lines) . "\n");
+    }
+
+    // Remove from FreePBX DB so they disappear from display=queues
+    $prev_names = qualid_get('synced_queue_names', array());
+    if (is_array($prev_names) && !empty($prev_names)) {
+        try {
+            $pdo = FreePBX::create()->Database;
+            foreach ($prev_names as $name) {
+                $pdo->prepare("DELETE FROM queues       WHERE extension = ?")->execute(array($name));
+                $pdo->prepare("DELETE FROM queue_details WHERE id       = ?")->execute(array($name));
+            }
+        } catch (Exception $e) {
+            // Non-fatal
+        }
+        qualid_set('synced_queue_names', array());
     }
 }
 
