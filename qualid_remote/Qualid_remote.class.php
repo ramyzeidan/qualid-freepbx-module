@@ -32,7 +32,7 @@ class Qualid_remote extends \FreePBX_Helpers implements \BMO {
      * Called automatically by FreePBX on every Apply Config / fwconsole reload.
      * Syncs extensions, CDR, PBX host, and heartbeat with the QUALI-D cloud.
      */
-    public function generate_config() {
+    public function genConfig() {
         // Defensive: ensure helpers are loaded even if constructor was skipped
         if (!function_exists('qualid_get')) {
             if (file_exists(__DIR__ . '/functions.inc.php')) {
