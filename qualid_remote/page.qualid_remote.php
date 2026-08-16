@@ -201,24 +201,14 @@ if (isset($_GET['qual_ajax'])) {
             echo json_encode(qualid_sync_queues($token));
             exit;
 
-        // -- Debug: check queue DB tables and attempt a test insert -----------
+        // -- Debug: show queues_config + queues_details rows after a sync ------
         case 'debug_queues':
             $out = [];
             try {
                 $pdo = FreePBX::create()->Database;
                 $out['pdo'] = 'ok';
-                // Show relevant tables
-                $tables = $pdo->query("SHOW TABLES LIKE '%queue%'")->fetchAll(PDO::FETCH_COLUMN);
-                $out['tables'] = $tables;
-                // Describe each
-                foreach ($tables as $t) {
-                    $cols = $pdo->query("DESCRIBE `{$t}`")->fetchAll(PDO::FETCH_ASSOC);
-                    $out['describe'][$t] = $cols;
-                }
-                // Show current rows in queues_config table if it exists
-                if (in_array('queues_config', $tables)) {
-                    $out['queues_rows'] = $pdo->query("SELECT * FROM queues_config LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
-                }
+                $out['queues_config']  = $pdo->query("SELECT extension, descr FROM queues_config  LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
+                $out['queues_details'] = $pdo->query("SELECT * FROM queues_details LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
             } catch (Exception $e) {
                 $out['error'] = $e->getMessage();
             }

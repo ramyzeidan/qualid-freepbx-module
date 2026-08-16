@@ -678,12 +678,12 @@ function qualid_sync_queues_to_freepbx_db($queues) {
                 $ins->execute(array($name, $key, (string) $val));
             }
 
-            // Members
+            // Members — FreePBX expects Local/XXXX@from-internal/n format
             $members = isset($q['members']) ? $q['members'] : array();
             foreach ($members as $ext) {
                 $clean = preg_replace('/[^0-9]/', '', $ext);
                 if ($clean) {
-                    $ins->execute(array($name, 'member', 'PJSIP/' . $clean));
+                    $ins->execute(array($name, 'member', 'Local/' . $clean . '@from-internal/n'));
                 }
             }
         }
