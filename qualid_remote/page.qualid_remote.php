@@ -391,6 +391,15 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                         <label>Connected At</label>
                         <span style="font-size:11px;"><?= htmlspecialchars($cfg['connected_at']) ?></span>
                     </div>
+                    <div class="qualid-info-item">
+                        <label>Last Apply Config</label>
+                        <?php
+                            $_last_ac = qualid_get('last_apply_config_at', '');
+                        ?>
+                        <span style="font-size:11px;<?= $_last_ac ? '' : 'color:#c0a020;' ?>">
+                            <?= $_last_ac ? htmlspecialchars($_last_ac) : 'Not yet triggered — click Apply Config' ?>
+                        </span>
+                    </div>
                 </div>
 
                 <div style="margin-top:14px;display:flex;justify-content:flex-end;">

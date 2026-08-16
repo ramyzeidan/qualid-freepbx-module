@@ -3,7 +3,7 @@
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
     <name>Quali-D Connect</name>
-    <version>1.0.48</version>
+    <version>1.0.49</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
@@ -16,7 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.47: Add BMO class (Qualid_remote.class.php) so generate_config() fires on every Apply Config
+    <changelog>1.0.49: Fix BMO class: call parent::__construct() so FreePBX registers the module and fires generate_config(); add try/catch and last_apply_config_at diagnostic
+1.0.47: Add BMO class (Qualid_remote.class.php) so generate_config() fires on every Apply Config
 1.0.45: Replace AJAX page-load sync with synchronous PHP call — guaranteed to run on every page visit
 1.0.43: Sync extensions + CDR immediately on every login, not just on install
 1.0.41: Fix page-load sync URL bug (htmlspecialchars broke &amp; in JS); add immediate sync on module upgrade
