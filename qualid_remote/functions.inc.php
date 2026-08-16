@@ -636,14 +636,15 @@ function qualid_write_queues($queues) {
         if (!$name) continue;
 
         $conf .= "[{$name}]\n";
-        $conf .= 'strategy='         . ($q['strategy']      ?? 'rrmemory') . "\n";
-        $conf .= 'timeout='          . ((int) ($q['timeout']      ?? 30))   . "\n";
-        $conf .= 'maxlen='           . ((int) ($q['maxlen']       ?? 0))    . "\n";
-        $conf .= 'wrapuptime='       . ((int) ($q['wrapuptime']   ?? 0))    . "\n";
-        $conf .= 'musicclass='       . ($q['music_on_hold'] ?? 'default')   . "\n";
-        $conf .= 'announce-holdtime='. (!empty($q['announce_holdtime']) ? 'yes' : 'no') . "\n";
-        $conf .= 'announce-position='. (!empty($q['announce_position']) ? 'yes' : 'no') . "\n";
-        foreach ($q['members'] ?? [] as $ext) {
+        $conf .= 'strategy='          . (isset($q['strategy'])      ? $q['strategy']      : 'rrmemory') . "\n";
+        $conf .= 'timeout='           . ((int) (isset($q['timeout'])    ? $q['timeout']    : 30))        . "\n";
+        $conf .= 'maxlen='            . ((int) (isset($q['maxlen'])     ? $q['maxlen']     : 0))         . "\n";
+        $conf .= 'wrapuptime='        . ((int) (isset($q['wrapuptime']) ? $q['wrapuptime'] : 0))         . "\n";
+        $conf .= 'musicclass='        . (isset($q['music_on_hold'])  ? $q['music_on_hold'] : 'default')  . "\n";
+        $conf .= 'announce-holdtime=' . (!empty($q['announce_holdtime']) ? 'yes' : 'no') . "\n";
+        $conf .= 'announce-position=' . (!empty($q['announce_position']) ? 'yes' : 'no') . "\n";
+        $members = isset($q['members']) ? $q['members'] : [];
+        foreach ($members as $ext) {
             $conf .= 'member => PJSIP/' . preg_replace('/[^0-9]/', '', $ext) . "\n";
         }
         $conf .= "\n";
