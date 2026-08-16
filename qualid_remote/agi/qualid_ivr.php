@@ -156,6 +156,54 @@ while (true) {
         break;
     }
 
+    // ── queue ────────────────────────────────────────────────────────────────
+    if ($action === 'queue') {
+        $queue_name = preg_replace('/[^a-z0-9_-]/', '', strtolower($instruction['queue_name'] ?? ''));
+        $timeout    = (int) ($instruction['timeout'] ?? 60);
+
+        if (!$queue_name) {
+            $instruction = ['action' => 'hangup'];
+            continue;
+        }
+
+        // EXEC Queue(queuename,options,url,announceoverride,timeout,agi,macro,gosub,rule,position)
+        // We only use name + timeout. The queue config (members, strategy, etc.) is
+        // pre-written to /etc/asterisk/queues_qualid.conf by the FreePBX module.
+        $queue_resp = agi("EXEC Queue {$queue_name},,,,{$timeout}");
+
+        // Queue() sets QUEUESTATUS: TIMEOUT, FULL, JOINEMPTY, LEAVEEMPTY, JOINUNAVAIL,
+        // LEAVEUNAVAIL, CONTINUE, or empty (answered + hung up by agent).
+        $status_resp = agi('GET VARIABLE QUEUESTATUS');
+        $queue_status = '';
+        if (preg_match('/result=1\s+\(([^)]+)\)/', $status_resp, $sm)) {
+            $queue_status = strtolower($sm[1]);
+        }
+
+        // Map Asterisk QUEUESTATUS to our event_data values
+        $result_map = [
+            'timeout'     => 'timeout',
+            'full'        => 'full',
+            'joinempty'   => 'joinempty',
+            'leaveempty'  => 'timeout',
+            'joinunavail' => 'joinempty',
+            'leaveunavail'=> 'timeout',
+            'continue'    => 'timeout',
+        ];
+        $queue_result = isset($result_map[$queue_status]) ? $result_map[$queue_status] : 'answered';
+
+        if ($queue_result === 'answered') {
+            $hangup_cause = 'queue_answered';
+        }
+
+        $step_resp   = api_post('/ivr/agi/step', [
+            'session_id' => $session_id,
+            'event'      => 'queue_result',
+            'event_data' => $queue_result,
+        ]);
+        $instruction = $step_resp['instruction'] ?? ['action' => 'hangup'];
+        continue;
+    }
+
     // ── wait ─────────────────────────────────────────────────────────────────
     if ($action === 'wait') {
         $secs = (int) ($instruction['duration'] ?? 2);

@@ -56,9 +56,9 @@ function qualid_complete_login($token, $user_name, $company_name) {
     // know which host to SIP-register against (best-effort — non-fatal).
     qualid_push_pbx_host($token);
 
-    // Sync all extensions and CDR immediately on login so the QUALI-D cloud
-    // is up-to-date the moment the connection is established.
+    // Sync all extensions, queues, and CDR immediately on login.
     qualid_sync_extensions($token);
+    qualid_sync_queues($token);
     qualid_sync_cdr_to_qualid($token);
 
     return ['success' => true];

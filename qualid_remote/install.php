@@ -40,5 +40,11 @@ if (file_exists($cfg_path)) {
     }
 }
 
+// Install cron job — syncs queues from the QUALI-D API every 5 minutes
+// so changes made in the Vue dashboard reach Asterisk automatically.
+$cron_line = "*/5 * * * * asterisk /usr/bin/php "
+           . "/var/www/html/admin/modules/qualid_remote/sync_cron.php 2>/dev/null\n";
+file_put_contents('/etc/cron.d/qualid_remote', $cron_line);
+
 out('Quali-D Connect installed successfully.');
 out('Go to Admin → Quali-D Connect to configure your connection.');
