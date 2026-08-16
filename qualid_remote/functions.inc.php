@@ -803,7 +803,39 @@ function qualid_remote_get_config() {
     qualid_sync_queues($token);
     qualid_sync_cdr_to_qualid($token);
     qualid_send_heartbeat($token);
+
+    // Write a cron job so syncing continues automatically every 5 minutes
+    // without requiring a page visit.  This hook runs as root so it has
+    // permission to write to /etc/cron.d/.
+    qualid_write_cron();
+
     return null;   // no dialplan entries to contribute
+}
+
+/**
+ * Write /etc/cron.d/qualid_remote so the background sync script runs every
+ * 5 minutes as the asterisk user.  Safe to call multiple times — idempotent.
+ */
+function qualid_write_cron() {
+    $sync_script = dirname(__FILE__) . '/sync.php';
+    $php_bin     = PHP_BINARY ?: '/usr/bin/php';
+    $cron_file   = '/etc/cron.d/qualid_remote';
+    $content     = "# Quali-D Connect — automatic sync (written by qualid_remote_get_config)\n"
+                 . "*/5 * * * * asterisk {$php_bin} {$sync_script} > /dev/null 2>&1\n";
+
+    @file_put_contents($cron_file, $content);
+    @chmod($cron_file, 0644);
+}
+
+/**
+ * Remove the cron job written by qualid_write_cron().
+ * Called on disconnect and uninstall.
+ */
+function qualid_remove_cron() {
+    $cron_file = '/etc/cron.d/qualid_remote';
+    if (file_exists($cron_file)) {
+        @unlink($cron_file);
+    }
 }
 
 // ---------------------------------------------------------------------------

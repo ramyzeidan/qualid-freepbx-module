@@ -140,6 +140,7 @@ if (isset($_GET['qual_ajax'])) {
             qualid_save_config([]);
             qualid_remove_asterisk_config();
             qualid_remove_agi_files();
+            qualid_remove_cron();
             echo json_encode(['success' => true]);
             exit;
 
