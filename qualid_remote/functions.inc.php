@@ -645,21 +645,26 @@ function qualid_sync_queues_to_freepbx_db($queues) {
         $current_names = array();
 
         foreach ($queues as $q) {
-            $name = preg_replace('/[^a-z0-9_-]/', '', strtolower($q['name']));
+            $name = preg_replace('/[^0-9]/', '', $q['name']);
             if (!$name) continue;
             $current_names[] = $name;
 
             $display = isset($q['display_name']) ? $q['display_name'] : $name;
 
-            // Upsert the queue row
+            // Upsert the queue row.
+            // dest = 'app-blackhole,hangup,1' silences FreePBX's "no failover
+            // destination" UI warning. Actual failover routing is handled by
+            // the IVR AGI flow, so this value is never reached in practice.
             $stmt = $pdo->prepare(
-                "INSERT INTO queues_config (extension, descr) VALUES (?, ?)
+                "INSERT INTO queues_config (extension, descr, dest)
+                 VALUES (?, ?, 'app-blackhole,hangup,1')
                  ON DUPLICATE KEY UPDATE descr = VALUES(descr)"
             );
             $stmt->execute(array($name, $display));
 
-            // Replace all details for this queue
-            $pdo->prepare("DELETE FROM queues_details WHERE id = ?")->execute(array($name));
+            // Replace queue setting rows only — leave any existing 'member' rows
+            // intact so that agents added via the FreePBX UI are not wiped.
+            $pdo->prepare("DELETE FROM queues_details WHERE id = ? AND keyword != 'member'")->execute(array($name));
 
             $details = array(
                 'strategy'          => isset($q['strategy'])      ? $q['strategy']      : 'rrmemory',
@@ -678,12 +683,17 @@ function qualid_sync_queues_to_freepbx_db($queues) {
                 $ins->execute(array($name, $key, (string) $val));
             }
 
-            // Members — FreePBX expects Local/XXXX@from-internal/n format
-            $members = isset($q['members']) ? $q['members'] : array();
-            foreach ($members as $ext) {
-                $clean = preg_replace('/[^0-9]/', '', $ext);
-                if ($clean) {
-                    $ins->execute(array($name, 'member', 'Local/' . $clean . '@from-internal/n'));
+            // Members — only replace when the API response explicitly includes a
+            // 'members' key.  If the key is absent the existing member rows are
+            // left as-is (preserves agents added via the FreePBX UI).
+            // An explicit empty array [] will still clear all members.
+            if (array_key_exists('members', $q)) {
+                $pdo->prepare("DELETE FROM queues_details WHERE id = ? AND keyword = 'member'")->execute(array($name));
+                foreach ($q['members'] as $ext) {
+                    $clean = preg_replace('/[^0-9]/', '', $ext);
+                    if ($clean) {
+                        $ins->execute(array($name, 'member', 'Local/' . $clean . '@from-internal/n'));
+                    }
                 }
             }
         }
@@ -718,7 +728,7 @@ function qualid_write_queues($queues) {
           . "; =============================================================================\n\n";
 
     foreach ($queues as $q) {
-        $name = preg_replace('/[^a-z0-9_-]/', '', strtolower($q['name']));
+        $name = preg_replace('/[^0-9]/', '', $q['name']);
         if (!$name) continue;
 
         $conf .= "[{$name}]\n";

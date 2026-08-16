@@ -232,6 +232,12 @@ if (isset($_GET['qual_ajax'])) {
 }
 
 // ---------------------------------------------------------------------------
+// FreePBX module framework requirement
+// Called by FreePBX before the page is rendered. No-op for this module.
+// ---------------------------------------------------------------------------
+function doConfigPageInit($page) {}
+
+// ---------------------------------------------------------------------------
 // Render the page
 // ---------------------------------------------------------------------------
 $cfg          = qualid_get_all();
