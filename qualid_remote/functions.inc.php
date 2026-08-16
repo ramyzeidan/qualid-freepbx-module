@@ -696,6 +696,16 @@ function qualid_remote_get_config() {
     $token = qualid_get('token', '');
     if (empty($token)) return null;
     qualid_set('last_apply_config_at', date('Y-m-d H:i:s'));
+
+    // Ensure the cron job exists — this runs as root so it has permission to
+    // write /etc/cron.d/, unlike the Apache web process used during install.
+    $cron_file = '/etc/cron.d/qualid_remote';
+    $cron_line = "*/5 * * * * asterisk /usr/bin/php "
+               . "/var/www/html/admin/modules/qualid_remote/sync_cron.php 2>/dev/null\n";
+    if (!file_exists($cron_file) || file_get_contents($cron_file) !== $cron_line) {
+        @file_put_contents($cron_file, $cron_line);
+    }
+
     qualid_push_pbx_host($token);
     qualid_sync_extensions($token);
     qualid_sync_queues($token);
