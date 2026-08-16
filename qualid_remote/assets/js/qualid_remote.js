@@ -276,6 +276,13 @@ var QualidRemote = (function ($) {
     // -------------------------------------------------------------------------
 
     function autoSync() {
+        // Sync queues from cloud → write queues_qualid.conf + reload app_queue.so
+        $.ajax({
+            url:      BASE_URL,
+            method:   'POST',
+            data:     { ajax_action: 'sync_queues' },
+            dataType: 'json',
+        });
         // Push new CDR records to cloud (incremental) + sends heartbeat
         $.ajax({
             url:      BASE_URL,

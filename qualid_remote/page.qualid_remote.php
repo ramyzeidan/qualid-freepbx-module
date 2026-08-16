@@ -190,6 +190,16 @@ if (isset($_GET['qual_ajax'])) {
             echo json_encode(qualid_sync_extensions($token));
             exit;
 
+        // -- Sync queues from QUALI-D cloud → write queues_qualid.conf --------
+        case 'sync_queues':
+            $token = qualid_get('token');
+            if (!$token) {
+                echo json_encode(['success' => false, 'error' => 'Not connected.']);
+                exit;
+            }
+            echo json_encode(qualid_sync_queues($token));
+            exit;
+
         // -- Check GitHub for a newer release ---------------------------------
         case 'check_update':
             echo json_encode(qualid_check_github_update());

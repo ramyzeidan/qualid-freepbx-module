@@ -40,9 +40,5 @@ if (file_exists($cfg_path)) {
     }
 }
 
-// Cron job for queue sync is written by qualid_remote_get_config() which runs
-// as root during Apply Config — Apache does not have permission to write /etc/cron.d/.
-// It will be installed automatically the first time Apply Config is clicked.
-
 out('Quali-D Connect installed successfully.');
 out('Go to Admin → Quali-D Connect to configure your connection.');

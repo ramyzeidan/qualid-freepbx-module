@@ -21,7 +21,4 @@ qualid_remove_queues();
 // Remove IVR AGI script and conf file
 qualid_remove_agi_files();
 
-// Remove queue sync cron job
-@unlink('/etc/cron.d/qualid_remote');
-
 out('Quali-D Connect uninstalled. Asterisk configs and AGI script removed.');
