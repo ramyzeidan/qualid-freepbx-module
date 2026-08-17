@@ -683,16 +683,28 @@ function qualid_sync_queues_to_freepbx_db($queues) {
                 $ins->execute(array($name, $key, (string) $val));
             }
 
-            // Members — only replace when the API response explicitly includes a
-            // 'members' key.  If the key is absent the existing member rows are
-            // left as-is (preserves agents added via the FreePBX UI).
-            // An explicit empty array [] will still clear all members.
-            if (array_key_exists('members', $q)) {
+            // Upgrade any pre-existing member rows written with flags=0 to
+            // flags=1 so they appear in FreePBX's Static Agents tab.
+            // This runs on every sync, so no CLI command is needed.
+            $pdo->prepare(
+                "UPDATE queues_details SET flags=1 WHERE id=? AND keyword='member' AND flags=0"
+            )->execute(array($name));
+
+            // Members — only replace when the API provides at least one member.
+            // If the API omits 'members' or sends an empty array (no agents
+            // assigned yet), the existing member rows are preserved so that
+            // agents added manually via the FreePBX UI are not wiped.
+            // flags=1 matches what FreePBX_Helpers::setConfig() writes for
+            // user-defined rows — the Static Agents tab filters on this value.
+            if (!empty($q['members'])) {
                 $pdo->prepare("DELETE FROM queues_details WHERE id = ? AND keyword = 'member'")->execute(array($name));
+                $mem_ins = $pdo->prepare(
+                    "INSERT INTO queues_details (id, keyword, data, flags) VALUES (?, 'member', ?, 1)"
+                );
                 foreach ($q['members'] as $ext) {
                     $clean = preg_replace('/[^0-9]/', '', $ext);
                     if ($clean) {
-                        $ins->execute(array($name, 'member', 'Local/' . $clean . '@from-internal/n'));
+                        $mem_ins->execute(array($name, 'Local/' . $clean . '@from-internal/n'));
                     }
                 }
             }
@@ -739,9 +751,12 @@ function qualid_write_queues($queues) {
         $conf .= 'musicclass='        . (isset($q['music_on_hold'])  ? $q['music_on_hold'] : 'default')  . "\n";
         $conf .= 'announce-holdtime=' . (!empty($q['announce_holdtime']) ? 'yes' : 'no') . "\n";
         $conf .= 'announce-position=' . (!empty($q['announce_position']) ? 'yes' : 'no') . "\n";
-        $members = isset($q['members']) ? $q['members'] : [];
+        $members = isset($q['members']) ? $q['members'] : array();
         foreach ($members as $ext) {
-            $conf .= 'member => PJSIP/' . preg_replace('/[^0-9]/', '', $ext) . "\n";
+            $clean = preg_replace('/[^0-9]/', '', $ext);
+            if ($clean) {
+                $conf .= 'member => Local/' . $clean . "@from-internal/n\n";
+            }
         }
         $conf .= "\n";
     }
