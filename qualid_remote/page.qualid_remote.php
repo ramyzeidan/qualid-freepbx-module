@@ -6,6 +6,15 @@
 
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
+// Ensure the FreePBX asset symlink exists.
+// FreePBX rewrites 'modules/qualid_remote/assets' → '/admin/assets/qualid_remote'
+// and serves files from that symlink. On a fresh install the symlink may be
+// missing if the module was deployed manually (not via fwconsole).
+$_qualid_symlink = dirname(dirname(__DIR__)) . '/assets/qualid_remote';
+if (!file_exists($_qualid_symlink) && is_dir(__DIR__ . '/assets')) {
+    @symlink(__DIR__ . '/assets', $_qualid_symlink);
+}
+
 // Enqueue our assets — skipped for AJAX calls (pure JSON response)
 if (!isset($_GET['qual_ajax'])) {
     $asset_path = 'modules/qualid_remote/assets';

@@ -178,10 +178,30 @@ function qualid_verify_totp($temp_token, $code) {
  * Passes the bearer token as identity (relay derives company_id from it).
  */
 function qualid_provision_trunk($token) {
-    $data = qualid_curl_post(QUALID_RELAY_URL . '/api/pbx/provision', [
-        'bearer_token' => $token,
-        'pbx_label'    => gethostname(),
+    $ch = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode(['bearer_token' => $token, 'pbx_label' => gethostname()]),
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,   // shorter than default 15 — fail fast on relay issues
+        CURLOPT_SSL_VERIFYPEER => true,
     ]);
+    $raw  = curl_exec($ch);
+    $err  = curl_error($ch);
+    curl_close($ch);
+
+    if ($err) {
+        return ['success' => false, 'error' =>
+            'Cannot reach the Quali-D relay server (' . QUALID_RELAY_URL . '). '
+            . 'Please check that this FreePBX machine has outbound internet access on port 443. '
+            . '(curl: ' . $err . ')'];
+    }
+
+    $data = json_decode($raw, true);
+    if (!$data) {
+        return ['success' => false, 'error' => 'Relay server returned an unexpected response.'];
+    }
 
     if (isset($data['_error'])) {
         return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
