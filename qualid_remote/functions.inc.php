@@ -151,6 +151,7 @@ function qualid_curl_get($url, $extra_headers = array()) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSLVERSION     => CURL_SSLVERSION_TLSv1_2,
         CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw  = curl_exec($ch);
@@ -172,6 +173,7 @@ function qualid_curl_post($url, $payload, $extra_headers = array()) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSLVERSION     => CURL_SSLVERSION_TLSv1_2,
         CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw  = curl_exec($ch);
@@ -259,6 +261,7 @@ function qualid_provision_trunk($token) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSLVERSION     => CURL_SSLVERSION_TLSv1_2,
         CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw = curl_exec($ch);
