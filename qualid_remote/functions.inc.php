@@ -14,6 +14,14 @@ define('QUALID_RELAY_URL',     'https://qualidapi1.1215515.xyz');
 define('QUALID_CLOUD_SERVER',  'qualidsip1.1215515.xyz');
 define('QUALID_CLOUD_PORT',    443);
 define('QUALID_CLOUD_IP',      '13.140.143.85');  // VPS direct IP — used for SIP/TCP trunk on port 443
+
+// CURLOPT_RESOLVE entries that pin our .xyz hostnames to their known VPS IP.
+// This bypasses the system DNS resolver entirely (no c-ares required) so the
+// module works on machines whose DNS server doesn't resolve .xyz TLD domains.
+define('QUALID_CURL_RESOLVE', array(
+    'qualidapi1.1215515.xyz:443:' . '13.140.143.85',
+    'qualidsip1.1215515.xyz:443:'  . '13.140.143.85',
+));
 define('QUALID_TRUNK_NAME',    'QualidRemote');
 define('QUALID_CONTEXT',       'qualid-remote-agents');
 define('QUALID_IVR_CONF',      '/etc/asterisk/qualid_ivr.conf');
@@ -75,22 +83,16 @@ function qualid_get_all() {
 // Public DNS servers used for all outbound curl requests.
 // This bypasses the system resolver so the module works even when the local
 // DNS server doesn't resolve non-.com TLDs (e.g. the .xyz relay domain).
-define('QUALID_DNS_SERVERS', '8.8.8.8,1.1.1.1');
-
 function qualid_curl_get($url, $extra_headers = array()) {
     $ch = curl_init($url);
-    $opts = array(
+    curl_setopt_array($ch, array(
         CURLOPT_HTTPGET        => true,
         CURLOPT_HTTPHEADER     => array_merge(array('Accept: application/json'), $extra_headers),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-    );
-    // Force public DNS — harmless if curl was not built with c-ares
-    if (defined('CURLOPT_DNS_SERVERS')) {
-        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
-    }
-    curl_setopt_array($ch, $opts);
+        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+    ));
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
@@ -103,18 +105,15 @@ function qualid_curl_get($url, $extra_headers = array()) {
 
 function qualid_curl_post($url, $payload, $extra_headers = array()) {
     $ch = curl_init($url);
-    $opts = array(
+    curl_setopt_array($ch, array(
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => json_encode($payload),
         CURLOPT_HTTPHEADER     => array_merge(array('Content-Type: application/json'), $extra_headers),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-    );
-    if (defined('CURLOPT_DNS_SERVERS')) {
-        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
-    }
-    curl_setopt_array($ch, $opts);
+        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+    ));
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
@@ -193,24 +192,20 @@ function qualid_verify_totp($temp_token, $code) {
  */
 /**
  * Provision the FreePBX SIP trunk via the relay server.
- * Uses public DNS (8.8.8.8 / 1.1.1.1) so the relay hostname resolves even on
- * machines whose local DNS server doesn't handle non-.com TLDs.
+ * CURLOPT_RESOLVE pins the relay hostname to its known VPS IP, bypassing the
+ * system DNS resolver — works even when local DNS doesn't handle .xyz domains.
  */
 function qualid_provision_trunk($token) {
-    // ── Path 1: relay server ────────────────────────────────────────────────
-    $ch   = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
-    $opts = array(
+    $ch = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
+    curl_setopt_array($ch, array(
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => json_encode(array('bearer_token' => $token, 'pbx_label' => gethostname())),
         CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-    );
-    if (defined('CURLOPT_DNS_SERVERS')) {
-        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
-    }
-    curl_setopt_array($ch, $opts);
+        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+    ));
     $raw = curl_exec($ch);
     $err = curl_error($ch);
     curl_close($ch);
