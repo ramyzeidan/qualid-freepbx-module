@@ -15,13 +15,6 @@ define('QUALID_CLOUD_SERVER',  'qualidsip1.1215515.xyz');
 define('QUALID_CLOUD_PORT',    443);
 define('QUALID_CLOUD_IP',      '13.140.143.85');  // VPS direct IP — used for SIP/TCP trunk on port 443
 
-// CURLOPT_RESOLVE entries that pin our .xyz hostnames to their known VPS IP.
-// This bypasses the system DNS resolver entirely (no c-ares required) so the
-// module works on machines whose DNS server doesn't resolve .xyz TLD domains.
-define('QUALID_CURL_RESOLVE', array(
-    'qualidapi1.1215515.xyz:443:' . '13.140.143.85',
-    'qualidsip1.1215515.xyz:443:'  . '13.140.143.85',
-));
 define('QUALID_TRUNK_NAME',    'QualidRemote');
 define('QUALID_CONTEXT',       'qualid-remote-agents');
 define('QUALID_IVR_CONF',      '/etc/asterisk/qualid_ivr.conf');
@@ -80,9 +73,76 @@ function qualid_get_all() {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
-// Public DNS servers used for all outbound curl requests.
-// This bypasses the system resolver so the module works even when the local
-// DNS server doesn't resolve non-.com TLDs (e.g. the .xyz relay domain).
+/**
+ * Resolve the relay hostname to an IP address, bypassing the system DNS.
+ * Strategy (automatic, no CLI required):
+ *   1. PHP's built-in gethostbyname() — works on most systems.
+ *   2. Cloudflare DNS-over-HTTPS (1.1.1.1) — always reachable over HTTPS;
+ *      works even when the system DNS doesn't resolve .xyz TLD domains.
+ *   3. Last resort: the known VPS IP constant (QUALID_CLOUD_IP).
+ * The resolved IP is cached in config.json for 1 hour so this adds no
+ * latency to normal requests.
+ */
+function qualid_resolve_relay_ip() {
+    $host = 'qualidapi1.1215515.xyz';
+
+    // Check 1-hour cache
+    $cached = qualid_get('relay_ip_cache', null);
+    if (is_array($cached)
+        && !empty($cached['ip'])
+        && !empty($cached['at'])
+        && (time() - (int) $cached['at']) < 3600) {
+        return $cached['ip'];
+    }
+
+    // Try system resolver first (fast)
+    $ip = gethostbyname($host);
+    if ($ip !== $host && filter_var($ip, FILTER_VALIDATE_IP)) {
+        qualid_set('relay_ip_cache', array('ip' => $ip, 'at' => time()));
+        return $ip;
+    }
+
+    // Fall back to Cloudflare DNS-over-HTTPS — no system DNS needed,
+    // connects to 1.1.1.1 by IP so no DNS required for this call itself.
+    $ch = curl_init('https://1.1.1.1/dns-query?name=' . rawurlencode($host) . '&type=A');
+    curl_setopt_array($ch, array(
+        CURLOPT_HTTPHEADER     => array('Accept: application/dns-json'),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 5,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ));
+    $raw = curl_exec($ch);
+    curl_close($ch);
+
+    $dns = json_decode($raw, true);
+    if (!empty($dns['Answer']) && is_array($dns['Answer'])) {
+        foreach ($dns['Answer'] as $rec) {
+            if (isset($rec['type']) && (int) $rec['type'] === 1
+                && isset($rec['data'])
+                && filter_var($rec['data'], FILTER_VALIDATE_IP)) {
+                $ip = $rec['data'];
+                qualid_set('relay_ip_cache', array('ip' => $ip, 'at' => time()));
+                return $ip;
+            }
+        }
+    }
+
+    // Last resort: hardcoded VPS IP
+    return QUALID_CLOUD_IP;
+}
+
+/**
+ * Build a CURLOPT_RESOLVE list that pins our .xyz hostnames to their real IP,
+ * bypassing whatever system DNS is configured on this machine.
+ */
+function qualid_curl_resolve_list() {
+    $ip = qualid_resolve_relay_ip();
+    return array(
+        'qualidapi1.1215515.xyz:443:' . $ip,
+        'qualidsip1.1215515.xyz:443:'  . $ip,
+    );
+}
+
 function qualid_curl_get($url, $extra_headers = array()) {
     $ch = curl_init($url);
     curl_setopt_array($ch, array(
@@ -91,7 +151,7 @@ function qualid_curl_get($url, $extra_headers = array()) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+        CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -112,7 +172,7 @@ function qualid_curl_post($url, $payload, $extra_headers = array()) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+        CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -188,12 +248,7 @@ function qualid_verify_totp($temp_token, $code) {
 
 /**
  * Provision the FreePBX SIP trunk via the relay server.
- * Passes the bearer token as identity (relay derives company_id from it).
- */
-/**
- * Provision the FreePBX SIP trunk via the relay server.
- * CURLOPT_RESOLVE pins the relay hostname to its known VPS IP, bypassing the
- * system DNS resolver — works even when local DNS doesn't handle .xyz domains.
+ * Uses qualid_curl_resolve_list() to bypass system DNS for the .xyz hostname.
  */
 function qualid_provision_trunk($token) {
     $ch = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
@@ -204,7 +259,7 @@ function qualid_provision_trunk($token) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_RESOLVE        => QUALID_CURL_RESOLVE,
+        CURLOPT_RESOLVE        => qualid_curl_resolve_list(),
     ));
     $raw = curl_exec($ch);
     $err = curl_error($ch);
