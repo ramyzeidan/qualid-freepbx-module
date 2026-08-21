@@ -72,43 +72,57 @@ function qualid_get_all() {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
-function qualid_curl_get($url, $extra_headers = []) {
+// Public DNS servers used for all outbound curl requests.
+// This bypasses the system resolver so the module works even when the local
+// DNS server doesn't resolve non-.com TLDs (e.g. the .xyz relay domain).
+define('QUALID_DNS_SERVERS', '8.8.8.8,1.1.1.1');
+
+function qualid_curl_get($url, $extra_headers = array()) {
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+    $opts = array(
         CURLOPT_HTTPGET        => true,
-        CURLOPT_HTTPHEADER     => array_merge(['Accept: application/json'], $extra_headers),
+        CURLOPT_HTTPHEADER     => array_merge(array('Accept: application/json'), $extra_headers),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-    ]);
+    );
+    // Force public DNS — harmless if curl was not built with c-ares
+    if (defined('CURLOPT_DNS_SERVERS')) {
+        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
+    }
+    curl_setopt_array($ch, $opts);
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
     curl_close($ch);
 
-    if ($err) return ['_error' => $err];
+    if ($err) return array('_error' => $err);
     $data = json_decode($raw, true);
-    return ($data !== null) ? $data : ['_http_error' => $code];
+    return ($data !== null) ? $data : array('_http_error' => $code);
 }
 
-function qualid_curl_post($url, $payload, $extra_headers = []) {
+function qualid_curl_post($url, $payload, $extra_headers = array()) {
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+    $opts = array(
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => json_encode($payload),
-        CURLOPT_HTTPHEADER     => array_merge(['Content-Type: application/json'], $extra_headers),
+        CURLOPT_HTTPHEADER     => array_merge(array('Content-Type: application/json'), $extra_headers),
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
-    ]);
+    );
+    if (defined('CURLOPT_DNS_SERVERS')) {
+        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
+    }
+    curl_setopt_array($ch, $opts);
     $raw  = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
     curl_close($ch);
 
-    if ($err) return ['_error' => $err];
+    if ($err) return array('_error' => $err);
     $data = json_decode($raw, true);
-    return ($data !== null) ? $data : ['_http_error' => $code];
+    return ($data !== null) ? $data : array('_http_error' => $code);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,39 +191,42 @@ function qualid_verify_totp($temp_token, $code) {
  * Provision the FreePBX SIP trunk via the relay server.
  * Passes the bearer token as identity (relay derives company_id from it).
  */
+/**
+ * Provision the FreePBX SIP trunk via the relay server.
+ * Uses public DNS (8.8.8.8 / 1.1.1.1) so the relay hostname resolves even on
+ * machines whose local DNS server doesn't handle non-.com TLDs.
+ */
 function qualid_provision_trunk($token) {
-    $ch = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
-    curl_setopt_array($ch, [
+    // ── Path 1: relay server ────────────────────────────────────────────────
+    $ch   = curl_init(QUALID_RELAY_URL . '/api/pbx/provision');
+    $opts = array(
         CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => json_encode(['bearer_token' => $token, 'pbx_label' => gethostname()]),
-        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS     => json_encode(array('bearer_token' => $token, 'pbx_label' => gethostname())),
+        CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 8,   // shorter than default 15 — fail fast on relay issues
+        CURLOPT_TIMEOUT        => 8,
         CURLOPT_SSL_VERIFYPEER => true,
-    ]);
-    $raw  = curl_exec($ch);
-    $err  = curl_error($ch);
+    );
+    if (defined('CURLOPT_DNS_SERVERS')) {
+        $opts[CURLOPT_DNS_SERVERS] = QUALID_DNS_SERVERS;
+    }
+    curl_setopt_array($ch, $opts);
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
     curl_close($ch);
 
     if ($err) {
-        return ['success' => false, 'error' =>
-            'Cannot reach the Quali-D relay server (' . QUALID_RELAY_URL . '). '
-            . 'Please check that this FreePBX machine has outbound internet access on port 443. '
-            . '(curl: ' . $err . ')'];
+        return array('success' => false, 'error' => 'Relay server unreachable: ' . $err);
     }
 
     $data = json_decode($raw, true);
     if (!$data) {
-        return ['success' => false, 'error' => 'Relay server returned an unexpected response.'];
+        return array('success' => false, 'error' => 'Relay server returned an unexpected response.');
     }
-
-    if (isset($data['_error'])) {
-        return ['success' => false, 'error' => 'Network error: ' . $data['_error']];
+    if (!(isset($data['success']) && $data['success'])) {
+        return array('success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Trunk provisioning failed');
     }
-    if (!(isset($data['success']) ? $data['success'] : false)) {
-        return ['success' => false, 'error' => isset($data['error']) ? $data['error'] : 'Trunk provisioning failed'];
-    }
-    return ['success' => true, 'data' => $data];
+    return array('success' => true, 'data' => $data);
 }
 
 // ---------------------------------------------------------------------------
