@@ -109,12 +109,32 @@ function download_audio($url) {
     return $tmp;
 }
 
-// Convert /tmp/file.mp3 to asterisk-compatible path (no extension)
-function audio_path($tmp_file) {
-    if (!$tmp_file) return 'silence/1';  // 1-second silence as fallback
-    // Asterisk needs the path without extension and GSM/WAV is preferred;
-    // we store MP3 so we use mp3player. Return full path without extension.
-    return $tmp_file;
+// ─ Helper: convert MP3 → WAV for native STREAM FILE support (enables barge-in) ──
+// Returns path WITHOUT extension (Asterisk STREAM FILE format), or null on failure.
+// mpg123 is always available (it is what app_mp3 uses internally).
+function convert_to_wav($mp3_file) {
+    if (!$mp3_file || !file_exists($mp3_file)) return null;
+    $base     = preg_replace('/\.mp3$/', '', $mp3_file);
+    $wav_file = $base . '.wav';
+
+    // Primary: mpg123 (guaranteed present on any Asterisk box with app_mp3)
+    exec(sprintf('mpg123 -q -m -r 8000 -w %s %s 2>/dev/null',
+        escapeshellarg($wav_file), escapeshellarg($mp3_file)), $out, $ret);
+
+    if ($ret === 0 && file_exists($wav_file) && filesize($wav_file) > 0) {
+        return $base; // path without extension for STREAM FILE
+    }
+
+    // Fallback: sox
+    exec(sprintf('sox %s -r 8000 -c 1 -e signed-integer -b 16 %s 2>/dev/null',
+        escapeshellarg($mp3_file), escapeshellarg($wav_file)), $out, $ret);
+
+    if ($ret === 0 && file_exists($wav_file) && filesize($wav_file) > 0) {
+        return $base;
+    }
+
+    @unlink($wav_file);
+    return null;
 }
 
 // ─ Answer the call ────────────────────────────────────────────────────────────
@@ -222,9 +242,11 @@ while (true) {
     // ── play ─────────────────────────────────────────────────────────────────
     if ($action === 'play') {
         $tmp = download_audio($instruction['url'] ?? null);
-        if ($tmp) {
-            agi("EXEC MP3Player {$tmp}");
-            @unlink($tmp);
+        $wav = $tmp ? convert_to_wav($tmp) : null;
+        if ($tmp) @unlink($tmp);
+        if ($wav) {
+            agi("STREAM FILE {$wav} \"\"");
+            @unlink($wav . '.wav');
         } else {
             agi('EXEC Wait 1');
         }
@@ -239,39 +261,53 @@ while (true) {
 
     // ── get_digits (menu / get_digits node) ──────────────────────────────────
     if ($action === 'get_digits') {
-        $tmp        = download_audio($instruction['url'] ?? null);
-        $timeout    = (int) ($instruction['timeout']    ?? 5) * 1000; // ms
-        $retries    = (int) ($instruction['retries']    ?? 3);
+        $tmp     = download_audio($instruction['url'] ?? null);
+        $timeout = (int) ($instruction['timeout'] ?? 5) * 1000; // ms
+        $retries = (int) ($instruction['retries'] ?? 3);
+
+        // Convert MP3 → WAV so STREAM FILE can handle barge-in natively
+        $wav = $tmp ? convert_to_wav($tmp) : null;
+        if ($tmp) @unlink($tmp);
 
         $key = '';
         for ($attempt = 0; $attempt < $retries; $attempt++) {
-            // Play prompt with MP3Player (no format_mp3 dependency),
-            // then wait for a single digit.
-            // NOTE: app_mp3 intercepts DTMF during playback and returns the digit
-            // as the EXEC result — check that first before calling WAIT FOR DIGIT.
-            if ($tmp) {
-                $exec_resp = agi("EXEC MP3Player {$tmp}");
-                if (preg_match('/result=(-?\d+)/', $exec_resp, $m)) {
+            if ($wav) {
+                // STREAM FILE returns digit ASCII on barge-in, 0 on normal completion
+                $resp = agi("STREAM FILE {$wav} \"0123456789*#\"");
+                if (preg_match('/result=(-?\d+)/', $resp, $m)) {
                     $ascii = (int) $m[1];
                     if ($ascii > 0) {
                         $key = chr($ascii); // digit pressed during playback
                         break;
                     }
                 }
+                // Playback ended without a digit — wait for additional input
+                $resp = agi("WAIT FOR DIGIT {$timeout}");
+            } else {
+                // WAV conversion unavailable — fall back to MP3Player
+                $tmp_mp3 = download_audio($instruction['url'] ?? null);
+                if ($tmp_mp3) {
+                    $exec_resp = agi("EXEC MP3Player {$tmp_mp3}");
+                    @unlink($tmp_mp3);
+                    if (preg_match('/result=(-?\d+)/', $exec_resp, $m) && (int)$m[1] > 0) {
+                        $key = chr((int)$m[1]);
+                        break;
+                    }
+                }
+                $resp = agi("WAIT FOR DIGIT {$timeout}");
             }
-            $resp = agi("WAIT FOR DIGIT {$timeout}");
-            // WAIT FOR DIGIT returns ASCII value of the key pressed, or -1 on timeout
+
             if (preg_match('/result=(-?\d+)/', $resp, $m)) {
                 $ascii = (int) $m[1];
                 if ($ascii > 0) {
-                    $key = chr($ascii); // e.g. 49 → "1", 50 → "2"
+                    $key = chr($ascii);
                     break;
                 }
             }
             $key = '';
         }
 
-        if ($tmp) @unlink($tmp);
+        if ($wav) @unlink($wav . '.wav');
 
         $event     = ($key === '') ? 'timeout' : 'dtmf';
         $step_resp = api_post('/ivr/agi/step', [
@@ -292,8 +328,12 @@ while (true) {
 
         // Play prompt, then record
         if ($tmp) {
-            agi("EXEC MP3Player {$tmp}");
+            $wav = convert_to_wav($tmp);
             @unlink($tmp);
+            if ($wav) {
+                agi("STREAM FILE {$wav} \"\"");
+                @unlink($wav . '.wav');
+            }
         }
         agi("RECORD FILE {$rec_file} wav \"#\" {$max_sec}000 s={$silence}");
 
@@ -334,8 +374,14 @@ while (true) {
 
         // Play beep prompt
         if ($tmp) {
-            agi("EXEC MP3Player {$tmp}");
+            $wav = convert_to_wav($tmp);
             @unlink($tmp);
+            if ($wav) {
+                agi("STREAM FILE {$wav} \"\"");
+                @unlink($wav . '.wav');
+            } else {
+                agi("EXEC Playback beep");
+            }
         } else {
             agi("EXEC Playback beep");
         }
