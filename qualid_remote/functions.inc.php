@@ -369,6 +369,16 @@ exten => _.,1,NoOp(Quali-D Connect inbound call from \${CALLERID(all)})
 exten => _.,1,NoOp(Routing call to remote agent \${EXTEN})
  same => n,Dial(PJSIP/\${EXTEN}@{$trunk_name}_endpoint,60,rU)
  same => n,Hangup()
+
+; ── Quali-D IVR ──────────────────────────────────────────────────────────────
+; Route inbound calls through the Quali-D IVR flow engine.
+; In FreePBX: Admin → Custom Destinations → add "qualid-ivr,<DID>,1"
+; then set your Inbound Route destination to that Custom Destination.
+; The DID passed as the extension becomes the trigger_number matched by the API.
+[qualid-ivr]
+exten => _.,1,NoOp(Quali-D IVR - DID:\${EXTEN} CID:\${CALLERID(num)})
+ same => n,AGI(qualid_ivr.php)
+ same => n,Hangup()
 CONF;
 
     $path = '/etc/asterisk/extensions_qualid.conf';
