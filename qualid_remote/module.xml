@@ -3,7 +3,7 @@
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
     <name>Quali-D Connect</name>
-    <version>1.0.74</version>
+    <version>1.0.75</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
@@ -16,7 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.73: Fix AGI audio playback: add X-AGI-Secret header to download_audio() so audio files can be fetched from the protected /api/ivr/agi/audio/{id} endpoint; replace GET DATA (requires format_mp3) with MP3Player + WAIT FOR DIGIT for universal MP3 support; fix WAIT FOR DIGIT ASCII parsing (chr() conversion)
+    <changelog>1.0.75: Fix [qualid-ivr] dialplan: add explicit exten => h,1,Hangup() so the h hangup extension does not match the _. wildcard and re-launch the AGI script on every call end
+1.0.73: Fix AGI audio playback: add X-AGI-Secret header to download_audio() so audio files can be fetched from the protected /api/ivr/agi/audio/{id} endpoint; replace GET DATA (requires format_mp3) with MP3Player + WAIT FOR DIGIT for universal MP3 support; fix WAIT FOR DIGIT ASCII parsing (chr() conversion)
 1.0.72: Add [qualid-ivr] dialplan context so inbound DIDs can be routed to the Quali-D IVR flow engine via AGI(qualid_ivr.php); configure via FreePBX Custom Destination pointing to qualid-ivr,&lt;DID&gt;,1
 1.0.71: Fix TLS cap: use CURL_SSLVERSION_MAX_TLSv1_2 to force TLS 1.2 as both min and max — CURL_SSLVERSION_TLSv1_2 alone only sets the minimum, still allowing TLS 1.3 which times out on Cloudflare Tunnel + OpenSSL 3.0.x
 1.0.69: Force TLS 1.2 on all relay curl calls — fixes TLS 1.3 handshake timeout with Cloudflare Tunnel on OpenSSL 3.0.x (Debian 12)

@@ -379,6 +379,7 @@ exten => _.,1,NoOp(Routing call to remote agent \${EXTEN})
 exten => _.,1,NoOp(Quali-D IVR - DID:\${EXTEN} CID:\${CALLERID(num)})
  same => n,AGI(qualid_ivr.php)
  same => n,Hangup()
+exten => h,1,Hangup()
 CONF;
 
     $path = '/etc/asterisk/extensions_qualid.conf';
