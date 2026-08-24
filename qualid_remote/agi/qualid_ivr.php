@@ -240,24 +240,24 @@ while (true) {
     // ── get_digits (menu / get_digits node) ──────────────────────────────────
     if ($action === 'get_digits') {
         $tmp        = download_audio($instruction['url'] ?? null);
-        $num_digits = (int) ($instruction['num_digits'] ?? 1);
         $timeout    = (int) ($instruction['timeout']    ?? 5) * 1000; // ms
         $retries    = (int) ($instruction['retries']    ?? 3);
-        $valid_keys = $instruction['valid_keys'] ?? [];
 
         $key = '';
         for ($attempt = 0; $attempt < $retries; $attempt++) {
-            // Play prompt
+            // Play prompt with MP3Player (no format_mp3 dependency),
+            // then wait for a single digit.
             if ($tmp) {
-                // Use GET DATA to play + collect simultaneously
-                $resp = agi("GET DATA {$tmp} {$timeout} {$num_digits}");
-            } else {
-                $resp = agi("WAIT FOR DIGIT {$timeout}");
+                agi("EXEC MP3Player {$tmp}");
             }
-            // Parse response: "200 result=<digits> (timeout)"
-            if (preg_match('/result=(\S+)/', $resp, $m)) {
-                $key = trim($m[1], '<>');
-                if ($key !== '' && $key !== '-1') break;
+            $resp = agi("WAIT FOR DIGIT {$timeout}");
+            // WAIT FOR DIGIT returns ASCII value of the key pressed, or -1 on timeout
+            if (preg_match('/result=(-?\d+)/', $resp, $m)) {
+                $ascii = (int) $m[1];
+                if ($ascii > 0) {
+                    $key = chr($ascii); // e.g. 49 → "1", 50 → "2"
+                    break;
+                }
             }
             $key = '';
         }
