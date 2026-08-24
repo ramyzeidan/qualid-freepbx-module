@@ -94,6 +94,8 @@ function download_audio($url) {
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => true,
+        // Send AGI secret so the /api/ivr/agi/audio/{id} endpoint accepts the request
+        CURLOPT_HTTPHEADER     => ['X-AGI-Secret: ' . QUALID_AGI_SECRET],
     ]);
     curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
