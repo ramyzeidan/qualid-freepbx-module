@@ -247,8 +247,17 @@ while (true) {
         for ($attempt = 0; $attempt < $retries; $attempt++) {
             // Play prompt with MP3Player (no format_mp3 dependency),
             // then wait for a single digit.
+            // NOTE: app_mp3 intercepts DTMF during playback and returns the digit
+            // as the EXEC result — check that first before calling WAIT FOR DIGIT.
             if ($tmp) {
-                agi("EXEC MP3Player {$tmp}");
+                $exec_resp = agi("EXEC MP3Player {$tmp}");
+                if (preg_match('/result=(-?\d+)/', $exec_resp, $m)) {
+                    $ascii = (int) $m[1];
+                    if ($ascii > 0) {
+                        $key = chr($ascii); // digit pressed during playback
+                        break;
+                    }
+                }
             }
             $resp = agi("WAIT FOR DIGIT {$timeout}");
             // WAIT FOR DIGIT returns ASCII value of the key pressed, or -1 on timeout
