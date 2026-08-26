@@ -97,6 +97,8 @@ if (isset($_GET['qual_ajax'])) {
                 exit;
             }
 
+            // Turnstile token is intentionally empty — the caller is already
+            // authenticated as a FreePBX admin, so bot protection is not needed here.
             $result = qualid_login($phone, $password, '');
 
             if (!$result['success']) {
@@ -208,35 +210,6 @@ if (isset($_GET['qual_ajax'])) {
                 exit;
             }
             echo json_encode(qualid_sync_queues($token));
-            exit;
-
-        // -- Debug: show queues_config + queues_details rows after a sync ------
-        case 'debug_queues':
-            $out = [];
-            try {
-                $pdo = FreePBX::create()->Database;
-                $out['pdo'] = 'ok';
-                $out['queues_config']  = $pdo->query("SELECT * FROM queues_config LIMIT 20")->fetchAll(PDO::FETCH_ASSOC);
-                $out['member_rows']    = $pdo->query("SELECT id, keyword, data, flags FROM queues_details WHERE keyword='member' LIMIT 30")->fetchAll(PDO::FETCH_ASSOC);
-                $out['all_details']    = $pdo->query("SELECT id, keyword, data, flags FROM queues_details ORDER BY id, keyword LIMIT 100")->fetchAll(PDO::FETCH_ASSOC);
-            } catch (Exception $e) {
-                $out['error'] = $e->getMessage();
-            }
-            echo json_encode($out);
-            exit;
-
-        // -- Debug: fetch raw queue config from QUALI-D API -------------------
-        case 'debug_api_queues':
-            $token = qualid_get('token');
-            if (!$token) {
-                echo json_encode(['success' => false, 'error' => 'Not connected.']);
-                exit;
-            }
-            $raw = qualid_curl_get(
-                QUALID_MAIN_API . '/ivr/queues/asterisk-config',
-                array('Authorization: Bearer ' . $token)
-            );
-            echo json_encode(['success' => true, 'api_response' => $raw]);
             exit;
 
         // -- Check GitHub for a newer release ---------------------------------

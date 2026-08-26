@@ -134,12 +134,19 @@ function qualid_resolve_relay_ip() {
 /**
  * Build a CURLOPT_RESOLVE list that pins our .xyz hostnames to their real IP,
  * bypassing whatever system DNS is configured on this machine.
+ *
+ * Only qualidsip1 is pinned here (used by Asterisk trunk, connects directly to
+ * the VPS on port 443 where Kamailio listens for TLS/SIP).
+ *
+ * qualidapi1 is intentionally NOT pinned — it routes through the Cloudflare
+ * tunnel to Node.js:3000 and is NOT directly accessible on the VPS IP:443.
+ * Pinning it to the VPS IP would cause API calls to fail when system DNS works
+ * but falls back to the VPS IP as last resort.
  */
 function qualid_curl_resolve_list() {
     $ip = qualid_resolve_relay_ip();
     return array(
-        'qualidapi1.1215515.xyz:443:' . $ip,
-        'qualidsip1.1215515.xyz:443:'  . $ip,
+        'qualidsip1.1215515.xyz:443:' . $ip,
     );
 }
 
