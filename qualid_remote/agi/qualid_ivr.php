@@ -319,6 +319,52 @@ while (true) {
         continue;
     }
 
+    // ── collect_input (multi-digit: phone numbers etc.) ──────────────────────
+    if ($action === 'collect_input') {
+        $tmp        = download_audio($instruction['url'] ?? null);
+        $num_digits = (int) ($instruction['num_digits']   ?? 11);
+        $timeout    = (int) ($instruction['timeout']      ?? 10) * 1000; // ms
+        $retries    = (int) ($instruction['retries']      ?? 2);
+
+        // Convert MP3 → WAV so GET DATA can play it with native barge-in
+        $wav = $tmp ? convert_to_wav($tmp) : null;
+        if ($tmp) @unlink($tmp);
+
+        $digits = '';
+        for ($attempt = 0; $attempt < $retries; $attempt++) {
+            if ($wav) {
+                // GET DATA plays the file and collects up to $num_digits digits.
+                // Inter-digit timeout is $timeout ms. Caller can press # to finish early.
+                $resp = agi("GET DATA {$wav} {$timeout} {$num_digits}");
+            } else {
+                // No audio — collect silently (should not happen; prompt always required)
+                $resp = agi("WAIT FOR DIGIT {$timeout}");
+            }
+
+            if (preg_match('/result=(\S+)/', $resp, $m)) {
+                $raw = $m[1];
+                if ($raw !== '' && $raw !== '-1') {
+                    // Strip trailing # if caller pressed it to confirm entry
+                    $digits = rtrim($raw, '#');
+                    $digits = preg_replace('/[^0-9*]/', '', $digits);
+                    if ($digits !== '') break;
+                }
+            }
+            $digits = '';
+        }
+
+        if ($wav) @unlink($wav . '.wav');
+
+        $event     = ($digits === '') ? 'timeout' : 'dtmf';
+        $step_resp = api_post('/ivr/agi/step', [
+            'session_id' => $session_id,
+            'event'      => $event,
+            'event_data' => $digits ?: null,
+        ]);
+        $instruction = $step_resp['instruction'] ?? ['action' => 'hangup'];
+        continue;
+    }
+
     // ── record_speech (speech-to-text via Whisper) ────────────────────────────
     if ($action === 'record_speech') {
         $tmp        = download_audio($instruction['url'] ?? null);

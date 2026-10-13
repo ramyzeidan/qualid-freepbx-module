@@ -16,7 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.84: Also check Grandstream X-ATA-CallerID SIP header for FSK-detected caller number — fixes caller ID when HT813 FXO gateway relays PSTN CID via its proprietary header instead of P-Asserted-Identity
+    <changelog>1.0.85: Add ivr_collect_input IVR node — plays a prompt and collects multiple DTMF digits (e.g. phone numbers) storing them in a named session variable for use in downstream flow nodes
+1.0.84: Also check Grandstream X-ATA-CallerID SIP header for FSK-detected caller number — fixes caller ID when HT813 FXO gateway relays PSTN CID via its proprietary header instead of P-Asserted-Identity
 1.0.83: Regenerate Asterisk dialplan and PJSIP config on every Apply Config — dialplan fixes in future module updates now take effect immediately without requiring a manual reconnect
 1.0.81: Fix FXO caller ID: read real PSTN caller number from P-Asserted-Identity / Remote-Party-ID SIP headers before AGI runs — fixes {{caller_id}} returning "WE-Landline-FXO" instead of the actual caller number when using a Grandstream HT813 FXO gateway
 1.0.75: Fix [qualid-ivr] dialplan: add explicit exten => h,1,Hangup() so the h hangup extension does not match the _. wildcard and re-launch the AGI script on every call end
