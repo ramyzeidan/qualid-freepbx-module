@@ -823,7 +823,7 @@ function qualid_sync_queues_to_freepbx_db($queues) {
                 foreach ($q['members'] as $ext) {
                     $clean = preg_replace('/[^0-9]/', '', $ext);
                     if ($clean) {
-                        $mem_ins->execute(array($name, 'Local/' . $clean . '@from-internal/n'));
+                        $mem_ins->execute(array($name, 'Local/' . $clean . '@qualid-remote-agents/n'));
                     }
                 }
             }
@@ -874,7 +874,7 @@ function qualid_write_queues($queues) {
         foreach ($members as $ext) {
             $clean = preg_replace('/[^0-9]/', '', $ext);
             if ($clean) {
-                $conf .= 'member => Local/' . $clean . "@from-internal/n\n";
+                $conf .= 'member => Local/' . $clean . "@qualid-remote-agents/n\n";
             }
         }
         $conf .= "\n";
