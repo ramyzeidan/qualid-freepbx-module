@@ -937,6 +937,16 @@ function qualid_remote_get_config() {
     $token = qualid_get('token', '');
     if (empty($token)) return null;
     qualid_set('last_apply_config_at', date('Y-m-d H:i:s'));
+
+    // Always regenerate Asterisk config files on Apply Config so that
+    // dialplan changes in module updates take effect without requiring
+    // a manual reconnect from the admin page.
+    $cfg = qualid_load_config();
+    if (!empty($cfg['trunk_user']) && !empty($cfg['trunk_pass'])) {
+        qualid_write_pjsip($cfg);
+        qualid_write_dialplan($cfg);
+    }
+
     qualid_push_pbx_host($token);
     qualid_sync_extensions($token);
     qualid_sync_queues($token);
