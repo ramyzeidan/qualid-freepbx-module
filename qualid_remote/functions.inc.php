@@ -383,7 +383,13 @@ exten => _.,1,NoOp(Routing call to remote agent \${EXTEN})
 ; then set your Inbound Route destination to that Custom Destination.
 ; The DID passed as the extension becomes the trigger_number matched by the API.
 [qualid-ivr]
-exten => _.,1,NoOp(Quali-D IVR - DID:\${EXTEN} CID:\${CALLERID(num)})
+exten => _.,1,NoOp(Quali-D IVR - DID:\${EXTEN} Raw CID:\${CALLERID(all)})
+ same => n,Set(QUALID_PAI=\${PJSIP_HEADER(read,P-Asserted-Identity)})
+ same => n,GotoIf(\$["\${QUALID_PAI}" != ""]?override)
+ same => n,Set(QUALID_PAI=\${PJSIP_HEADER(read,Remote-Party-ID)})
+ same => n,GotoIf(\$["\${QUALID_PAI}" = ""]?run)
+ same => n(override),Set(CALLERID(num)=\${FILTER(0-9+,\${CUT(QUALID_PAI,@,1)})})
+ same => n(run),NoOp(Final CID: \${CALLERID(num)})
  same => n,AGI(qualid_ivr.php)
  same => n,Hangup()
 exten => h,1,Hangup()
