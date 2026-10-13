@@ -322,6 +322,7 @@ function qualid_write_pjsip($cfg) {
 type=transport
 protocol=tls
 bind=0.0.0.0
+method=tlsv1_2
 verify_server=no
 verify_client=no
 
@@ -333,7 +334,7 @@ password={$trunk_pass}
 
 [{$trunk_name}_aor]
 type=aor
-contact=sip:{$cloud_ip}:{$trunk_port};transport=tls
+contact=sip:{$cloud_srv}:{$trunk_port};transport=tls
 
 [{$trunk_name}_endpoint]
 type=endpoint
@@ -354,6 +355,11 @@ CONF;
     $path = '/etc/asterisk/pjsip_qualid.conf';
     file_put_contents($path, $conf);
     qualid_ensure_include('/etc/asterisk/pjsip_custom_post.conf', 'pjsip_qualid.conf');
+
+    // Pin the SIP hostname → VPS IP in /etc/hosts so Asterisk resolves it
+    // correctly and sends the right TLS SNI even when Egyptian ISP DNS
+    // blocks .xyz TLD resolution.
+    qualid_pin_hosts_entry(QUALID_CLOUD_IP, QUALID_CLOUD_SERVER);
 }
 
 function qualid_write_dialplan($cfg) {
@@ -373,6 +379,7 @@ exten => _.,1,NoOp(Quali-D Connect inbound call from \${CALLERID(all)})
  same => n,Goto(from-trunk,\${EXTEN},1)
 
 [{$context}]
+exten => h,1,Hangup()
 exten => _.,1,NoOp(Routing call to remote agent \${EXTEN})
  same => n,Dial(PJSIP/\${EXTEN}@{$trunk_name}_endpoint,60,rU)
  same => n,Hangup()
@@ -412,6 +419,24 @@ function qualid_ensure_include($target_file, $include_file) {
     if (strpos($contents, $include_file) === false) {
         file_put_contents($target_file, $contents . "\n" . $include_line . "\n");
     }
+}
+
+/**
+ * Upsert a single hostname → IP entry in /etc/hosts.
+ * Removes any existing line for the same hostname first, then appends.
+ * This pins the SIP server hostname to its VPS IP so Asterisk can resolve
+ * it (and send the correct TLS SNI) even when system DNS blocks .xyz TLDs.
+ */
+function qualid_pin_hosts_entry($ip, $hostname) {
+    $hosts = '/etc/hosts';
+    if (!file_exists($hosts) || !is_writable($hosts)) return;
+    $lines = file($hosts, FILE_IGNORE_NEW_LINES);
+    // Remove any pre-existing entry for this hostname
+    $lines = array_filter($lines, function($line) use ($hostname) {
+        return !preg_match('/\s+' . preg_quote($hostname, '/') . '(\s|$)/', $line);
+    });
+    $lines[] = $ip . ' ' . $hostname . '  # qualid-remote';
+    file_put_contents($hosts, implode("\n", $lines) . "\n");
 }
 
 function qualid_remove_asterisk_config() {
