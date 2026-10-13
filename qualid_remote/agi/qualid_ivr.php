@@ -313,7 +313,7 @@ while (true) {
         $step_resp = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => $event,
-            'event_data' => $key ?: null,
+            'event_data' => $key !== '' ? (string) $key : null,  // cast: keep leading zeros in JSON
         ]);
         $instruction = $step_resp['instruction'] ?? ['action' => 'hangup'];
         continue;
@@ -359,7 +359,7 @@ while (true) {
         $step_resp = api_post('/ivr/agi/step', [
             'session_id' => $session_id,
             'event'      => $event,
-            'event_data' => $digits ?: null,
+            'event_data' => $digits !== '' ? (string) $digits : null,  // cast: keep leading zeros in JSON
         ]);
         $instruction = $step_resp['instruction'] ?? ['action' => 'hangup'];
         continue;
