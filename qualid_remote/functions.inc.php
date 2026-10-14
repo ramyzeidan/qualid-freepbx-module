@@ -334,7 +334,8 @@ password={$trunk_pass}
 
 [{$trunk_name}_aor]
 type=aor
-contact=sip:{$cloud_srv}:{$trunk_port};transport=tls
+contact=sip:{$cloud_ip}:{$trunk_port};transport=tls
+qualify_frequency=60
 
 [{$trunk_name}_endpoint]
 type=endpoint
