@@ -349,6 +349,10 @@ allow=alaw
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
+; SRTP via SDES — encrypts G.711 payload so ISP DPI cannot fingerprint plain PCM audio.
+; SIP signalling already uses TLS/443 for the same reason (ISP DPI blocks INVITE keyword).
+; rtpengine on the VPS bridges SDES-SRTP (Asterisk) <-> DTLS-SRTP (Flutter) transparently.
+media_encryption=sdes
 from_user={$trunk_user}
 from_domain={$cloud_srv}
 CONF;
