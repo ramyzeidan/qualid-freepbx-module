@@ -65,6 +65,16 @@ function qualid_complete_login($token, $user_name, $company_name) {
     // know which host to SIP-register against (best-effort — non-fatal).
     qualid_push_pbx_host($token);
 
+    // Set up WireGuard VPN tunnel between this FreePBX and the QUALI-D VPS.
+    // This encrypts the FreePBX→VPS RTP path at the network layer so the
+    // Egyptian ISP's DPI cannot detect and filter plain G.711 packets.
+    // Best-effort — failure is logged but does not block login.
+    $wg_result = qualid_setup_wireguard($token);
+    if (!$wg_result['success']) {
+        error_log('[qualid] WireGuard setup warning: ' . $wg_result['error']);
+        // Continue — calls still work, just with potential ISP packet loss.
+    }
+
     // Sync all extensions, queues, and CDR immediately on login.
     qualid_sync_extensions($token);
     qualid_sync_queues($token);

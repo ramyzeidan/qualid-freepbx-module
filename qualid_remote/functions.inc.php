@@ -290,6 +290,176 @@ function qualid_provision_trunk($token) {
 }
 
 // ---------------------------------------------------------------------------
+// WireGuard VPN — ISP DPI bypass (FreePBX→VPS RTP path)
+//
+// Egyptian ISP DPI filters plain G.711 RTP UDP (62-80% packet loss confirmed).
+// Solution: create a WireGuard tunnel from FreePBX to the VPS. The ISP sees
+// encrypted WireGuard UDP on port 51820, not G.711 PCM → no filtering.
+//
+// rtpengine on the VPS binds the FreePBX-side RTP port on 10.10.1.1 (the VPS
+// WireGuard tunnel IP). The 200 OK SDP sent to FreePBX contains c=IN IP4 10.10.1.1;
+// FreePBX's kernel routes 10.10.1.1 via wg0 → traffic goes through the tunnel.
+//
+// This function is called from qualid_complete_login() — best-effort, non-fatal.
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the available package manager on this Linux system.
+ * Returns 'apt', 'dnf', 'yum', or null.
+ */
+function qualid_detect_pkg_manager() {
+    if (is_executable('/usr/bin/apt-get') || is_executable('/bin/apt-get')) return 'apt';
+    if (is_executable('/usr/bin/dnf'))                                       return 'dnf';
+    if (is_executable('/usr/bin/yum'))                                       return 'yum';
+    return null;
+}
+
+/**
+ * Auto-install and configure WireGuard on this FreePBX server, then register
+ * with the QUALI-D VPS so the FreePBX→VPS RTP path is tunnelled.
+ *
+ * Steps:
+ *   1. Install wireguard-tools via the system package manager (if not present).
+ *   2. Generate a WireGuard keypair for this FreePBX server (stored locally).
+ *   3. Call POST /api/wg/register on the relay API to enroll the public key.
+ *      VPS responds with: tunnel_ip, vps_pubkey, vps_endpoint.
+ *   4. Write /etc/wireguard/wg0.conf with the received parameters.
+ *   5. Enable and start wg-quick@wg0.
+ *
+ * @param string $token  QUALI-D bearer token (same one used for trunk provisioning).
+ * @return array         ['success'=>true] on success, ['success'=>false,'error'=>'...'] on failure.
+ */
+function qualid_setup_wireguard($token) {
+    // -----------------------------------------------------------------------
+    // 1. Install wireguard-tools if `wg` is not already present
+    // -----------------------------------------------------------------------
+    $wg_bin = null;
+    foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
+        if (is_executable($p)) { $wg_bin = $p; break; }
+    }
+
+    if (!$wg_bin) {
+        $pm = qualid_detect_pkg_manager();
+        if ($pm === 'apt') {
+            @exec('DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools 2>&1', $out, $ret);
+        } elseif ($pm === 'dnf') {
+            @exec('dnf install -y wireguard-tools 2>&1', $out, $ret);
+        } elseif ($pm === 'yum') {
+            // CentOS/RHEL 7 — needs EPEL first
+            @exec('yum install -y epel-release 2>&1');
+            @exec('yum install -y wireguard-tools 2>&1', $out, $ret);
+        } else {
+            return array('success' => false, 'error' => 'Cannot detect package manager. Install wireguard-tools manually.');
+        }
+
+        // Re-check after install
+        foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
+            if (is_executable($p)) { $wg_bin = $p; break; }
+        }
+        if (!$wg_bin) {
+            return array('success' => false, 'error' => 'wireguard-tools installation failed. Install it manually and reconnect.');
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Load or generate this FreePBX server's WireGuard keypair
+    //    Stored in a module-local JSON file (never sent to the VPS).
+    // -----------------------------------------------------------------------
+    $state_file = dirname(__FILE__) . '/wireguard_state.json';
+    $state      = array();
+    if (file_exists($state_file)) {
+        $state = json_decode(file_get_contents($state_file), true) ?: array();
+    }
+
+    if (empty($state['private_key']) || empty($state['public_key'])) {
+        $private_key = trim(@shell_exec($wg_bin . ' genkey 2>/dev/null'));
+        if (empty($private_key)) {
+            return array('success' => false, 'error' => 'WireGuard key generation failed (wg genkey returned empty).');
+        }
+        $public_key = trim(@shell_exec("echo " . escapeshellarg($private_key) . " | " . $wg_bin . " pubkey 2>/dev/null"));
+        if (empty($public_key)) {
+            return array('success' => false, 'error' => 'WireGuard public key derivation failed.');
+        }
+        $state['private_key'] = $private_key;
+        $state['public_key']  = $public_key;
+        file_put_contents($state_file, json_encode($state));
+        @chmod($state_file, 0600);
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Register this FreePBX's public key with the VPS relay API
+    // -----------------------------------------------------------------------
+    $ch = curl_init(QUALID_RELAY_URL . '/api/wg/register');
+    curl_setopt_array($ch, array(
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode(array(
+            'bearer_token' => $token,
+            'pubkey'       => $state['public_key'],
+        )),
+        CURLOPT_HTTPHEADER     => array('Content-Type: application/json'),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSLVERSION     => CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_TLSv1_2,
+    ));
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($err) {
+        return array('success' => false, 'error' => 'WireGuard relay call failed: ' . $err);
+    }
+    $wg_data = json_decode($raw, true);
+    if (!$wg_data || empty($wg_data['success'])) {
+        $msg = isset($wg_data['error']) ? $wg_data['error'] : 'Unknown error from relay';
+        return array('success' => false, 'error' => 'WireGuard registration failed: ' . $msg);
+    }
+
+    $tunnel_ip    = $wg_data['tunnel_ip'];    // e.g. "10.10.1.2"
+    $vps_pubkey   = $wg_data['vps_pubkey'];
+    $vps_endpoint = $wg_data['vps_endpoint']; // e.g. "13.140.143.85:51820"
+
+    // -----------------------------------------------------------------------
+    // 4. Write /etc/wireguard/wg0.conf
+    //    AllowedIPs = 10.10.1.1/32 (only the VPS tunnel IP routes via WireGuard)
+    //    This avoids redirecting all traffic through the VPS — only RTP to
+    //    10.10.1.1 (which rtpengine puts in the SDP) goes through the tunnel.
+    // -----------------------------------------------------------------------
+    $conf = <<<CONF
+[Interface]
+PrivateKey = {$state['private_key']}
+Address = {$tunnel_ip}/32
+
+[Peer]
+# QUALI-D VPS WireGuard server
+PublicKey = {$vps_pubkey}
+Endpoint = {$vps_endpoint}
+AllowedIPs = 10.10.1.1/32
+PersistentKeepalive = 25
+CONF;
+
+    if (!is_dir('/etc/wireguard')) {
+        @mkdir('/etc/wireguard', 0700, true);
+    }
+    file_put_contents('/etc/wireguard/wg0.conf', $conf);
+    @chmod('/etc/wireguard/wg0.conf', 0600);
+
+    // -----------------------------------------------------------------------
+    // 5. Enable and start the WireGuard interface
+    // -----------------------------------------------------------------------
+    @exec('systemctl enable wg-quick@wg0 2>&1');
+    @exec('systemctl restart wg-quick@wg0 2>&1', $out, $ret);
+
+    // Persist the assigned tunnel parameters in module state
+    $state['tunnel_ip']    = $tunnel_ip;
+    $state['vps_pubkey']   = $vps_pubkey;
+    $state['vps_endpoint'] = $vps_endpoint;
+    file_put_contents($state_file, json_encode($state));
+
+    return array('success' => true, 'tunnel_ip' => $tunnel_ip);
+}
+
+// ---------------------------------------------------------------------------
 // Asterisk config generation
 // ---------------------------------------------------------------------------
 
@@ -349,10 +519,9 @@ allow=alaw
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
-; SRTP via SDES — encrypts G.711 payload so ISP DPI cannot fingerprint plain PCM audio.
-; SIP signalling already uses TLS/443 for the same reason (ISP DPI blocks INVITE keyword).
-; rtpengine on the VPS bridges SDES-SRTP (Asterisk) <-> DTLS-SRTP (Flutter) transparently.
-media_encryption=sdes
+; Plain RTP — ISP DPI bypass is handled at the NETWORK LAYER via WireGuard VPN.
+; All UDP from FreePBX to the VPS travels inside WireGuard's encrypted tunnel so the
+; ISP sees opaque WireGuard packets, not G.711 PCM. No SRTP/SDES needed here.
 from_user={$trunk_user}
 from_domain={$cloud_srv}
 CONF;
