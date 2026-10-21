@@ -40,15 +40,5 @@ if (file_exists($cfg_path)) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// WireGuard — best-effort wireguard-tools install if running as root.
-// The authoritative setup runs in genConfig() (fwconsole reload = root).
-// If this block runs as non-root (web-based module install), it is silently
-// skipped; genConfig() handles it on the first Apply Config after Connect.
-// ---------------------------------------------------------------------------
-if (function_exists('posix_getuid') && posix_getuid() === 0) {
-    qualid_apply_wireguard_config();
-}
-
 out('Quali-D Connect installed successfully.');
 out('Go to Admin → Quali-D Connect to configure your connection.');

@@ -60,11 +60,6 @@ class Qualid_remote extends \FreePBX_Helpers implements \BMO {
         }
 
         try {
-            // Apply pending WireGuard config (runs as root via fwconsole reload).
-            // qualid_prepare_wireguard() saves state + sets wg_setup_pending on Connect;
-            // this call does the privileged work: apt-get, /etc/wireguard/, wg-quick.
-            qualid_apply_wireguard_config();
-
             qualid_push_pbx_host($token);
             qualid_sync_extensions($token);
             qualid_sync_cdr_to_qualid($token);
