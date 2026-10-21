@@ -315,51 +315,64 @@ function qualid_detect_pkg_manager() {
 }
 
 /**
- * Auto-install and configure WireGuard on this FreePBX server, then register
- * with the QUALI-D VPS so the FreePBX→VPS RTP path is tunnelled.
+ * Phase 1 — called from qualid_complete_login() as the asterisk web user.
  *
- * Steps:
- *   1. Install wireguard-tools via the system package manager (if not present).
- *   2. Generate a WireGuard keypair for this FreePBX server (stored locally).
- *   3. Call POST /api/wg/register on the relay API to enroll the public key.
- *      VPS responds with: tunnel_ip, vps_pubkey, vps_endpoint.
- *   4. Write /etc/wireguard/wg0.conf with the received parameters.
- *   5. Enable and start wg-quick@wg0.
+ * Generates a WireGuard keypair for this FreePBX server and registers the
+ * public key with the QUALI-D VPS relay, which responds with the assigned
+ * tunnel IP, VPS public key, and WireGuard endpoint.
  *
- * @param string $token  QUALI-D bearer token (same one used for trunk provisioning).
- * @return array         ['success'=>true] on success, ['success'=>false,'error'=>'...'] on failure.
+ * All steps here run fine as a non-root web user:
+ *   • Keypair generation uses the wg binary (if already installed) or PHP
+ *     sodium (Curve25519) as a fallback — no root required.
+ *   • The CURL call to /api/wg/register is a plain HTTPS request.
+ *   • State is saved to the module directory, writable by asterisk.
+ *
+ * The tunnel is NOT started here. qualid_apply_wireguard_config() (called
+ * from genConfig() which runs as root on Apply Config) does the privileged
+ * work: installs wireguard-tools, writes /etc/wireguard/wg0.conf, enables
+ * and starts wg-quick@wg0, and adds a sudoers entry for future restarts.
+ *
+ * @param string $token  QUALI-D bearer token.
+ * @return array  ['success'=>true,'tunnel_ip'=>'...'] or ['success'=>false,'error'=>'...'].
  */
-function qualid_setup_wireguard($token) {
-    // -----------------------------------------------------------------------
-    // 1. Locate the wg binary — installed by install.php (runs as root).
-    //    If missing, the module needs to be upgraded via Module Admin.
-    // -----------------------------------------------------------------------
-    $wg_bin = null;
-    foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
-        if (is_executable($p)) { $wg_bin = $p; break; }
-    }
-    if (!$wg_bin) {
-        return array('success' => false, 'error' => 'wireguard-tools not installed. Upgrade the Quali-D Connect module in Module Admin to install it automatically.');
-    }
-
-    // -----------------------------------------------------------------------
-    // 2. Load or generate this FreePBX server's WireGuard keypair
-    //    Stored in a module-local JSON file (never sent to the VPS).
-    // -----------------------------------------------------------------------
+function qualid_prepare_wireguard($token) {
     $state_file = dirname(__FILE__) . '/wireguard_state.json';
     $state      = array();
     if (file_exists($state_file)) {
         $state = json_decode(file_get_contents($state_file), true) ?: array();
     }
 
+    // -----------------------------------------------------------------------
+    // 1. Generate keypair if not already stored.
+    //    Prefer wg binary (installed on first Apply Config); fall back to
+    //    PHP sodium which is always available on PHP 7.2+ / Debian 10+.
+    // -----------------------------------------------------------------------
     if (empty($state['private_key']) || empty($state['public_key'])) {
-        $private_key = trim(@shell_exec($wg_bin . ' genkey 2>/dev/null'));
-        if (empty($private_key)) {
-            return array('success' => false, 'error' => 'WireGuard key generation failed (wg genkey returned empty).');
+        $wg_bin = null;
+        foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
+            if (is_executable($p)) { $wg_bin = $p; break; }
         }
-        $public_key = trim(@shell_exec("echo " . escapeshellarg($private_key) . " | " . $wg_bin . " pubkey 2>/dev/null"));
-        if (empty($public_key)) {
-            return array('success' => false, 'error' => 'WireGuard public key derivation failed.');
+
+        if ($wg_bin) {
+            $private_key = trim(@shell_exec($wg_bin . ' genkey 2>/dev/null'));
+            $public_key  = empty($private_key) ? '' :
+                trim(@shell_exec('echo ' . escapeshellarg($private_key) . ' | ' . $wg_bin . ' pubkey 2>/dev/null'));
+        } elseif (function_exists('sodium_crypto_scalarmult_base')) {
+            // Curve25519 keypair via PHP sodium — wg-compatible format.
+            // Private key: 32 random bytes with Curve25519 clamping applied.
+            // Public key:  scalar multiplication of private key with base point.
+            $priv_raw     = random_bytes(32);
+            $priv_raw[0]  = chr(ord($priv_raw[0])  & 248);          // clear low 3 bits
+            $priv_raw[31] = chr((ord($priv_raw[31]) & 127) | 64);   // clear high bit, set second-high
+            $private_key  = base64_encode($priv_raw);
+            $public_key   = base64_encode(sodium_crypto_scalarmult_base($priv_raw));
+        } else {
+            return array('success' => false,
+                'error' => 'Cannot generate WireGuard keypair: wireguard-tools not installed and PHP sodium unavailable. Click Apply Config then reconnect.');
+        }
+
+        if (empty($private_key) || empty($public_key)) {
+            return array('success' => false, 'error' => 'WireGuard keypair generation failed.');
         }
         $state['private_key'] = $private_key;
         $state['public_key']  = $public_key;
@@ -368,7 +381,8 @@ function qualid_setup_wireguard($token) {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Register this FreePBX's public key with the VPS relay API
+    // 2. Register this FreePBX's public key with the VPS relay API.
+    //    Response: { tunnel_ip, vps_pubkey, vps_endpoint }
     // -----------------------------------------------------------------------
     $ch = curl_init(QUALID_RELAY_URL . '/api/wg/register');
     curl_setopt_array($ch, array(
@@ -391,55 +405,151 @@ function qualid_setup_wireguard($token) {
         return array('success' => false, 'error' => 'WireGuard relay call failed: ' . $err);
     }
     $wg_data = json_decode($raw, true);
-    if (!$wg_data || empty($wg_data['success'])) {
+    if (empty($wg_data['success'])) {
         $msg = isset($wg_data['error']) ? $wg_data['error'] : 'Unknown error from relay';
         return array('success' => false, 'error' => 'WireGuard registration failed: ' . $msg);
     }
 
-    $tunnel_ip    = $wg_data['tunnel_ip'];    // e.g. "10.10.1.2"
-    $vps_pubkey   = $wg_data['vps_pubkey'];
-    $vps_endpoint = $wg_data['vps_endpoint']; // e.g. "13.140.143.85:51820"
+    // -----------------------------------------------------------------------
+    // 3. Save VPS-assigned tunnel parameters and mark config as pending.
+    //    qualid_apply_wireguard_config() reads this on the next Apply Config.
+    // -----------------------------------------------------------------------
+    $state['tunnel_ip']      = $wg_data['tunnel_ip'];
+    $state['vps_pubkey']     = $wg_data['vps_pubkey'];
+    $state['vps_endpoint']   = $wg_data['vps_endpoint'];
+    $state['config_pending'] = true;
+    file_put_contents($state_file, json_encode($state));
+    qualid_set('wg_setup_pending', '1');
+
+    return array('success' => true, 'tunnel_ip' => $wg_data['tunnel_ip']);
+}
+
+/**
+ * Phase 2 — called from genConfig() which runs as root via fwconsole reload.
+ *
+ * Applies the pending WireGuard configuration:
+ *   1. Installs wireguard-tools via the system package manager (if absent).
+ *   2. Creates /etc/wireguard/ owned by asterisk (for future reconnects).
+ *   3. Writes /etc/wireguard/wg0.conf from the state saved by qualid_prepare_wireguard().
+ *   4. Adds /etc/sudoers.d/qualid-wireguard so asterisk can restart the tunnel.
+ *   5. Enables and starts wg-quick@wg0.
+ *   6. Clears the pending flag.
+ *
+ * Is a no-op if no config is pending, or if not running as root.
+ * Progress is appended to wireguard_apply.log in the module directory.
+ */
+function qualid_apply_wireguard_config() {
+    $state_file = dirname(__FILE__) . '/wireguard_state.json';
+    $log_file   = dirname(__FILE__) . '/wireguard_apply.log';
+    $ts         = date('Y-m-d H:i:s');
+
+    if (!file_exists($state_file)) return;
+    $state = json_decode(file_get_contents($state_file), true) ?: array();
+
+    if (empty($state['config_pending'])
+        || empty($state['private_key'])
+        || empty($state['tunnel_ip'])) {
+        return;
+    }
+
+    // All privileged operations require root. genConfig() runs as root when
+    // triggered by "Apply Config" in the web UI (fwconsole via sudo). If for
+    // some reason we are not root, log and bail — no harm done.
+    if (function_exists('posix_getuid') && posix_getuid() !== 0) {
+        @file_put_contents($log_file,
+            "$ts qualid_apply_wireguard_config: skipped (uid=" . posix_getuid() . ", not root)\n",
+            FILE_APPEND);
+        return;
+    }
 
     // -----------------------------------------------------------------------
-    // 4. Write /etc/wireguard/wg0.conf
-    //    AllowedIPs = 10.10.1.1/32 (only the VPS tunnel IP routes via WireGuard)
-    //    This avoids redirecting all traffic through the VPS — only RTP to
-    //    10.10.1.1 (which rtpengine puts in the SDP) goes through the tunnel.
+    // 1. Install wireguard-tools if not present.
+    // -----------------------------------------------------------------------
+    $wg_bin = null;
+    foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
+        if (is_executable($p)) { $wg_bin = $p; break; }
+    }
+    if (!$wg_bin) {
+        $pm = qualid_detect_pkg_manager();
+        if ($pm === 'apt') {
+            @exec('DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools 2>&1', $o, $r);
+        } elseif ($pm === 'dnf') {
+            @exec('dnf install -y wireguard-tools 2>&1', $o, $r);
+        } elseif ($pm === 'yum') {
+            @exec('yum install -y epel-release 2>&1');
+            @exec('yum install -y wireguard-tools 2>&1', $o, $r);
+        } else {
+            @file_put_contents($log_file, "$ts wireguard-tools: unknown package manager\n", FILE_APPEND);
+            return;
+        }
+        if (!empty($r)) {
+            @file_put_contents($log_file, "$ts wireguard-tools install failed (pm=$pm ret=$r)\n", FILE_APPEND);
+            return;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Create /etc/wireguard/ and give asterisk ownership so future
+    //    reconnects (running as asterisk) can overwrite wg0.conf.
+    // -----------------------------------------------------------------------
+    if (!is_dir('/etc/wireguard')) {
+        @mkdir('/etc/wireguard', 0700, true);
+    }
+    @chown('/etc/wireguard', 'asterisk');
+    @chgrp('/etc/wireguard', 'asterisk');
+
+    // -----------------------------------------------------------------------
+    // 3. Write /etc/wireguard/wg0.conf
+    //    AllowedIPs = 10.10.1.1/32 — only the VPS tunnel IP routes via WireGuard.
+    //    All other traffic (SIP to VPS public IP, internet, etc.) is unaffected.
     // -----------------------------------------------------------------------
     $conf = <<<CONF
 [Interface]
 PrivateKey = {$state['private_key']}
-Address = {$tunnel_ip}/32
+Address = {$state['tunnel_ip']}/32
 
 [Peer]
 # QUALI-D VPS WireGuard server
-PublicKey = {$vps_pubkey}
-Endpoint = {$vps_endpoint}
+PublicKey = {$state['vps_pubkey']}
+Endpoint = {$state['vps_endpoint']}
 AllowedIPs = 10.10.1.1/32
 PersistentKeepalive = 25
 CONF;
-
-    if (!is_dir('/etc/wireguard')) {
-        @mkdir('/etc/wireguard', 0700, true);
-    }
     file_put_contents('/etc/wireguard/wg0.conf', $conf);
     @chmod('/etc/wireguard/wg0.conf', 0600);
 
     // -----------------------------------------------------------------------
-    // 5. Enable and start the WireGuard interface
+    // 4. Sudoers entry: asterisk can restart the tunnel after future reconnects
+    //    without waiting for another Apply Config.
     // -----------------------------------------------------------------------
-    // sudo -n = non-interactive (no password prompt); the sudoers entry written
-    // by install.php grants asterisk NOPASSWD for these specific commands.
-    @exec('sudo -n systemctl enable wg-quick@wg0 2>&1');
-    @exec('sudo -n systemctl restart wg-quick@wg0 2>&1', $out, $ret);
+    $sudoers  = "# Quali-D Connect — WireGuard tunnel management (auto-generated)\n";
+    $sudoers .= "asterisk ALL=(ALL) NOPASSWD:"
+              . " /usr/bin/wg-quick,"
+              . " /bin/systemctl enable wg-quick@wg0,"
+              . " /bin/systemctl start wg-quick@wg0,"
+              . " /bin/systemctl restart wg-quick@wg0,"
+              . " /usr/bin/systemctl enable wg-quick@wg0,"
+              . " /usr/bin/systemctl start wg-quick@wg0,"
+              . " /usr/bin/systemctl restart wg-quick@wg0\n";
+    @file_put_contents('/etc/sudoers.d/qualid-wireguard', $sudoers);
+    @chmod('/etc/sudoers.d/qualid-wireguard', 0440);
 
-    // Persist the assigned tunnel parameters in module state
-    $state['tunnel_ip']    = $tunnel_ip;
-    $state['vps_pubkey']   = $vps_pubkey;
-    $state['vps_endpoint'] = $vps_endpoint;
+    // -----------------------------------------------------------------------
+    // 5. Enable and start/restart wg-quick@wg0.
+    // -----------------------------------------------------------------------
+    @exec('systemctl enable wg-quick@wg0 2>&1');
+    @exec('systemctl restart wg-quick@wg0 2>&1', $svc_out, $svc_ret);
+
+    // -----------------------------------------------------------------------
+    // 6. Clear pending flag and log result.
+    // -----------------------------------------------------------------------
+    $state['config_pending'] = false;
     file_put_contents($state_file, json_encode($state));
+    qualid_set('wg_setup_pending', '0');
 
-    return array('success' => true, 'tunnel_ip' => $tunnel_ip);
+    @file_put_contents($log_file,
+        "$ts WireGuard applied: tunnel={$state['tunnel_ip']} endpoint={$state['vps_endpoint']} svc_ret={$svc_ret}\n",
+        FILE_APPEND);
 }
 
 // ---------------------------------------------------------------------------

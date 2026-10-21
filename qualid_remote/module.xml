@@ -3,7 +3,7 @@
     <rawname>qualid_remote</rawname>
     <repo>standard</repo>
     <name>Quali-D Connect</name>
-    <version>1.0.98</version>
+    <version>1.0.99</version>
     <publisher>QUALI-D</publisher>
     <license>Commercial</license>
     <licenselink>https://quali-d.com</licenselink>
@@ -16,7 +16,8 @@
         Simply enter your QUALI-D API key and the module configures everything
         automatically: SIP trunk, dialplan rules, and agent credentials.
     </description>
-    <changelog>1.0.97: WireGuard auto-install: move wireguard-tools installation and /etc/wireguard/ setup into install.php (runs as root via fwconsole) so Connect no longer fails when the web user lacks package manager access; add sudoers entry for asterisk user to manage wg-quick@wg0 without root at runtime
+    <changelog>1.0.99: WireGuard two-phase setup: Phase 1 (qualid_prepare_wireguard) runs during Connect as asterisk — generates keypair via wg binary or PHP sodium fallback, registers with VPS relay; Phase 2 (qualid_apply_wireguard_config) runs in genConfig() as root on Apply Config — installs wireguard-tools, writes /etc/wireguard/wg0.conf, adds sudoers entry, starts wg-quick@wg0
+1.0.97: WireGuard auto-install: move wireguard-tools installation and /etc/wireguard/ setup into install.php (runs as root via fwconsole) so Connect no longer fails when the web user lacks package manager access; add sudoers entry for asterisk user to manage wg-quick@wg0 without root at runtime
 1.0.90: Fix relay TLS handshake: use hostname in PJSIP AOR contact (not raw IP) so Asterisk sends correct TLS SNI to Kamailio — fixes "unexpected message (sni: unknown)" rejection; pin hostname to VPS IP in /etc/hosts so Asterisk resolves it even when ISP DNS blocks .xyz TLD; add method=tlsv1_2 to transport; add explicit exten => h,1,Hangup() to qualid-remote-agents context
 1.0.88: Fix queue agent routing: use qualid-remote-agents context for queue members so calls are routed through the relay trunk instead of attempting a direct PJSIP registration lookup — fixes CHANUNAVAIL when agents are connected via the relay app
 1.0.85: Add ivr_collect_input IVR node — plays a prompt and collects multiple DTMF digits (e.g. phone numbers) storing them in a named session variable for use in downstream flow nodes

@@ -69,9 +69,12 @@ function qualid_complete_login($token, $user_name, $company_name) {
     // This encrypts the FreePBX→VPS RTP path at the network layer so the
     // Egyptian ISP's DPI cannot detect and filter plain G.711 packets.
     // Best-effort — failure is logged but does not block login.
-    $wg_result = qualid_setup_wireguard($token);
+    // Phase 1: generate keypair + register with VPS relay (runs as asterisk, no root needed).
+    // Phase 2 (install wireguard-tools + write wg0.conf + start tunnel) runs in
+    // genConfig() as root on the next Apply Config click.
+    $wg_result = qualid_prepare_wireguard($token);
     if (!$wg_result['success']) {
-        error_log('[qualid] WireGuard setup warning: ' . $wg_result['error']);
+        error_log('[qualid] WireGuard prepare warning: ' . $wg_result['error']);
         // Continue — calls still work, just with potential ISP packet loss.
     }
 
