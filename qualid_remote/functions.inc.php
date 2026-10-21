@@ -331,34 +331,15 @@ function qualid_detect_pkg_manager() {
  */
 function qualid_setup_wireguard($token) {
     // -----------------------------------------------------------------------
-    // 1. Install wireguard-tools if `wg` is not already present
+    // 1. Locate the wg binary — installed by install.php (runs as root).
+    //    If missing, the module needs to be upgraded via Module Admin.
     // -----------------------------------------------------------------------
     $wg_bin = null;
     foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
         if (is_executable($p)) { $wg_bin = $p; break; }
     }
-
     if (!$wg_bin) {
-        $pm = qualid_detect_pkg_manager();
-        if ($pm === 'apt') {
-            @exec('DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools 2>&1', $out, $ret);
-        } elseif ($pm === 'dnf') {
-            @exec('dnf install -y wireguard-tools 2>&1', $out, $ret);
-        } elseif ($pm === 'yum') {
-            // CentOS/RHEL 7 — needs EPEL first
-            @exec('yum install -y epel-release 2>&1');
-            @exec('yum install -y wireguard-tools 2>&1', $out, $ret);
-        } else {
-            return array('success' => false, 'error' => 'Cannot detect package manager. Install wireguard-tools manually.');
-        }
-
-        // Re-check after install
-        foreach (array('/usr/bin/wg', '/sbin/wg', '/usr/sbin/wg') as $p) {
-            if (is_executable($p)) { $wg_bin = $p; break; }
-        }
-        if (!$wg_bin) {
-            return array('success' => false, 'error' => 'wireguard-tools installation failed. Install it manually and reconnect.');
-        }
+        return array('success' => false, 'error' => 'wireguard-tools not installed. Upgrade the Quali-D Connect module in Module Admin to install it automatically.');
     }
 
     // -----------------------------------------------------------------------
@@ -447,8 +428,10 @@ CONF;
     // -----------------------------------------------------------------------
     // 5. Enable and start the WireGuard interface
     // -----------------------------------------------------------------------
-    @exec('systemctl enable wg-quick@wg0 2>&1');
-    @exec('systemctl restart wg-quick@wg0 2>&1', $out, $ret);
+    // sudo -n = non-interactive (no password prompt); the sudoers entry written
+    // by install.php grants asterisk NOPASSWD for these specific commands.
+    @exec('sudo -n systemctl enable wg-quick@wg0 2>&1');
+    @exec('sudo -n systemctl restart wg-quick@wg0 2>&1', $out, $ret);
 
     // Persist the assigned tunnel parameters in module state
     $state['tunnel_ip']    = $tunnel_ip;
