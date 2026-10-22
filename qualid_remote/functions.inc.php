@@ -405,8 +405,8 @@ function qualid_write_rtp_conf() {
     $turn_block = <<<CONF
 ; -- qualid-turn-start --
 icesupport=yes
-stunaddr={$turn_ip}:3478
-turnaddr={$turn_ip}:3478
+stunaddr={$turn_ip}:443
+turnaddr={$turn_ip}:443
 turnusername={$username}
 turnpassword={$password}
 ; -- qualid-turn-end --
