@@ -1141,9 +1141,9 @@ function qualid_remote_get_config() {
         // completes — wiping our TURN block.  By deferring 3 seconds in a
         // setsid subshell, we ensure (a) rtp_additional.conf is fully
         // regenerated first, and (b) the process survives fwconsole exit.
-        $php   = PHP_BINARY ?: '/usr/bin/php';
-        $funcs = dirname(__FILE__) . '/functions.inc.php';
-        exec("setsid bash -c 'sleep 3 && {$php} -r \"define(\\\"FREEPBX_IS_AUTH\\\",1); require \\\"$funcs\\\"; qualid_write_rtp_conf();\"' > /dev/null 2>&1 &");
+        $php    = PHP_BINARY ?: '/usr/bin/php';
+        $helper = dirname(__FILE__) . '/deferred_rtp.php';
+        exec("setsid bash -c 'sleep 3 && {$php} {$helper}' > /dev/null 2>&1 &");
     }
 
     qualid_push_pbx_host($token);
