@@ -245,9 +245,26 @@ if (isset($_GET['qual_ajax'])) {
                     qualid_write_cron();
                     echo json_encode(['success' => true]);
                     break;
+                case 'pjsip':
+                    $_fix_cfg = qualid_load_config();
+                    if (!empty($_fix_cfg['trunk_user']) && !empty($_fix_cfg['trunk_pass'])) {
+                        qualid_write_pjsip($_fix_cfg);
+                        qualid_write_dialplan($_fix_cfg);
+                        needreload();
+                        @exec('sudo fwconsole reload --quiet > /dev/null 2>&1 &');
+                    }
+                    echo json_encode(['success' => true]);
+                    break;
                 case 'all':
+                    $_fix_cfg = qualid_load_config();
+                    if (!empty($_fix_cfg['trunk_user']) && !empty($_fix_cfg['trunk_pass'])) {
+                        qualid_write_pjsip($_fix_cfg);
+                        qualid_write_dialplan($_fix_cfg);
+                    }
                     qualid_write_rtp_conf();   // also calls setup_stun_tunnel + clean_overrides
                     qualid_write_cron();
+                    needreload();
+                    @exec('sudo fwconsole reload --quiet > /dev/null 2>&1 &');
                     echo json_encode(['success' => true]);
                     break;
                 default:
@@ -328,7 +345,7 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
     </div>
 </div>
 
-<div class="row">
+<div class="row" style="display:flex;flex-wrap:wrap;align-items:flex-start;">
     <div class="col-md-7">
 
         <!-- Connection Card -->
@@ -441,18 +458,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                         <span><?= htmlspecialchars($cfg['company_name']) ?></span>
                     </div>
                     <div class="qualid-info-item">
-                        <label>SIP Domain</label>
-                        <span><?= htmlspecialchars($cfg['sip_domain']) ?></span>
-                    </div>
-                    <div class="qualid-info-item">
-                        <label>Trunk User</label>
-                        <span><?= htmlspecialchars($cfg['trunk_user']) ?></span>
-                    </div>
-                    <div class="qualid-info-item">
-                        <label>TURN Server</label>
-                        <span><?= htmlspecialchars($cfg['turn_server'] ?: 'qualidturn1.1215515.xyz') ?></span>
-                    </div>
-                    <div class="qualid-info-item">
                         <label>Connected At</label>
                         <span style="font-size:11px;"><?= htmlspecialchars($cfg['connected_at']) ?></span>
                     </div>
@@ -507,13 +512,11 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
         </div>
         <?php endif; ?>
 
-    </div>
-</div>
+    </div><!-- /.col-md-7 -->
 
-<?php if ($is_connected): ?>
-<!-- System Diagnostics — full-width row -->
-<div class="row">
-    <div class="col-md-12">
+    <?php if ($is_connected): ?>
+    <div class="col-md-5">
+        <!-- System Diagnostics -->
         <div class="qualid-card" id="qualid-diag-card">
             <div class="qualid-card-header">
                 <h3>
@@ -524,7 +527,7 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                     <button class="qualid-btn qualid-btn-outline qualid-btn-sm"
                             id="qualid-diag-fix-all-btn"
                             style="display:none;">
-                        <i class="fa fa-wrench"></i> Fix All Issues
+                        <i class="fa fa-wrench"></i> Fix All
                     </button>
                     <button class="qualid-btn qualid-btn-outline qualid-btn-sm"
                             id="qualid-diag-refresh-btn"
@@ -539,6 +542,7 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                 </div>
             </div>
         </div>
-    </div>
-</div>
-<?php endif; ?>
+    </div><!-- /.col-md-5 -->
+    <?php endif; ?>
+
+</div><!-- /.row -->

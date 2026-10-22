@@ -1363,8 +1363,13 @@ function qualid_run_diagnostics() {
     ];
 
     // 9. PJSIP trunk configured
+    // Our module writes /etc/asterisk/pjsip_qualid.conf and includes it via
+    // pjsip_custom_post.conf.  Check that primary file first, then fall back
+    // to the other standard PJSIP config files.
     $pjsip_files  = [
+        '/etc/asterisk/pjsip_qualid.conf',
         '/etc/asterisk/pjsip_additional.conf',
+        '/etc/asterisk/pjsip_custom_post.conf',
         '/etc/asterisk/pjsip.conf',
         '/etc/asterisk/pjsip_custom.conf',
     ];
@@ -1376,19 +1381,30 @@ function qualid_run_diagnostics() {
             $pjsip_ok     = true;
             $pjsip_source = basename($pf);
             if (strpos($pfc, 'webrtc=yes') !== false) {
-                $pjsip_source .= ' (WebRTC enabled)';
+                $pjsip_source .= ' (WebRTC&nbsp;enabled)';
             }
             break;
         }
     }
+    // Also check whether pjsip_qualid.conf is included from pjsip_custom_post.conf
+    $pjsip_included = false;
+    $post_conf = @file_get_contents('/etc/asterisk/pjsip_custom_post.conf');
+    if ($post_conf !== false && strpos($post_conf, 'pjsip_qualid.conf') !== false) {
+        $pjsip_included = true;
+    }
+    $pjsip_has_creds = !empty(qualid_get('trunk_user')) && !empty(qualid_get('trunk_pass'));
     $checks[] = [
         'id'     => 'pjsip_trunk',
         'label'  => 'PJSIP trunk configured',
         'ok'     => $pjsip_ok,
-        'detail' => $pjsip_ok ? htmlspecialchars($pjsip_source) : 'QualidRemote endpoint not found in PJSIP config',
-        'fix'    => null,
+        'detail' => $pjsip_ok
+            ? htmlspecialchars($pjsip_source) . ($pjsip_included ? ', included via pjsip_custom_post.conf' : '')
+            : 'pjsip_qualid.conf not written yet',
+        'fix'    => $pjsip_has_creds ? 'pjsip' : null,
         'action' => $pjsip_ok ? null
-            : 'PJSIP trunk not written yet. Go to <b>Admin &rarr; Apply Config</b> to generate it.',
+            : ($pjsip_has_creds
+                ? 'PJSIP trunk file is missing. Click <b>Fix</b> to write it now.'
+                : 'Trunk credentials missing &mdash; Disconnect and log in again to re-provision.'),
     ];
 
     $failures = array_filter($checks, function ($c) { return !$c['ok']; });
