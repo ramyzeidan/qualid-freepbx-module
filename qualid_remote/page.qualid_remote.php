@@ -489,14 +489,6 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                     </div>
                 </div>
 
-                <div style="margin-top:14px;display:flex;justify-content:flex-end;">
-                    <button class="qualid-btn qualid-btn-outline qualid-btn-sm"
-                            id="qualid-copy-domain"
-                            data-value="<?= htmlspecialchars($cfg['sip_domain']) ?>">
-                        <i class="fa fa-copy"></i> Copy Domain
-                    </button>
-                </div>
-
                 <hr class="qualid-divider">
 
                 <div id="qualid-test-alert"></div>
