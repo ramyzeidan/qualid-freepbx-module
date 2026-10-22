@@ -214,6 +214,47 @@ if (isset($_GET['qual_ajax'])) {
             echo json_encode(qualid_sync_queues($token));
             exit;
 
+        // -- System diagnostics -----------------------------------------------
+        case 'get_diagnostics':
+            echo json_encode(qualid_run_diagnostics());
+            exit;
+
+        // -- Apply a named fix (tunnel / rtp_conf / overrides / cron / all) --
+        case 'run_fix':
+            $token = qualid_get('token');
+            if (!$token) {
+                echo json_encode(['success' => false, 'error' => 'Not connected.']);
+                exit;
+            }
+            $fix = isset($_POST['fix']) ? trim($_POST['fix']) : '';
+            switch ($fix) {
+                case 'tunnel':
+                    qualid_setup_stun_tunnel();
+                    echo json_encode(['success' => true]);
+                    break;
+                case 'rtp_conf':
+                    qualid_write_rtp_conf();
+                    echo json_encode(['success' => true]);
+                    break;
+                case 'overrides':
+                    qualid_clean_rtp_overrides();
+                    exec('asterisk -rx "module reload res_rtp_asterisk.so" 2>/dev/null');
+                    echo json_encode(['success' => true]);
+                    break;
+                case 'cron':
+                    qualid_write_cron();
+                    echo json_encode(['success' => true]);
+                    break;
+                case 'all':
+                    qualid_write_rtp_conf();   // also calls setup_stun_tunnel + clean_overrides
+                    qualid_write_cron();
+                    echo json_encode(['success' => true]);
+                    break;
+                default:
+                    echo json_encode(['success' => false, 'error' => 'Unknown fix: ' . htmlspecialchars($fix)]);
+            }
+            exit;
+
         // -- Check GitHub for a newer release ---------------------------------
         case 'check_update':
             echo json_encode(qualid_check_github_update());
@@ -468,3 +509,36 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
 
     </div>
 </div>
+
+<?php if ($is_connected): ?>
+<!-- System Diagnostics — full-width row -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="qualid-card" id="qualid-diag-card">
+            <div class="qualid-card-header">
+                <h3>
+                    <span class="card-icon"><i class="fa fa-stethoscope"></i></span>
+                    System Diagnostics
+                </h3>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="qualid-btn qualid-btn-outline qualid-btn-sm"
+                            id="qualid-diag-fix-all-btn"
+                            style="display:none;">
+                        <i class="fa fa-wrench"></i> Fix All Issues
+                    </button>
+                    <button class="qualid-btn qualid-btn-outline qualid-btn-sm"
+                            id="qualid-diag-refresh-btn"
+                            title="Re-run diagnostics">
+                        <i class="fa fa-refresh"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="qualid-card-body" id="qualid-diag-body">
+                <div style="text-align:center;padding:20px;color:#8a9db5;">
+                    <span class="qualid-spinner dark"></span>&ensp;Running checks&hellip;
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>

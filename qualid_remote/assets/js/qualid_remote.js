@@ -293,6 +293,123 @@ var QualidRemote = (function ($) {
     }
 
     // -------------------------------------------------------------------------
+    // System Diagnostics
+    // -------------------------------------------------------------------------
+
+    function loadDiagnostics() {
+        var $body = $('#qualid-diag-body');
+        if (!$body.length) return;
+
+        $body.html(
+            '<div style="text-align:center;padding:20px;color:#8a9db5;">' +
+            '<span class="qualid-spinner dark"></span>&ensp;Running checks&hellip;</div>'
+        );
+        $('#qualid-diag-fix-all-btn').hide();
+
+        $.ajax({
+            url:      BASE_URL,
+            method:   'GET',
+            data:     { ajax_action: 'get_diagnostics' },
+            dataType: 'json',
+        }).done(function (res) {
+            renderDiagnostics(res);
+        }).fail(function () {
+            $body.html(
+                '<div class="qualid-alert qualid-alert-error" style="margin:12px;">' +
+                '<i class="fa fa-exclamation-circle"></i> Could not run diagnostics &mdash; check server logs.</div>'
+            );
+        });
+    }
+
+    function renderDiagnostics(res) {
+        var $body   = $('#qualid-diag-body');
+        var $fixAll = $('#qualid-diag-fix-all-btn');
+        if (!$body.length) return;
+
+        if (!res || !res.success || !res.checks) {
+            $body.html(
+                '<div class="qualid-alert qualid-alert-error" style="margin:12px;">' +
+                '<i class="fa fa-exclamation-circle"></i> Diagnostic error &mdash; unexpected response.</div>'
+            );
+            return;
+        }
+
+        $fixAll.toggle(!res.all_ok);
+
+        var banner = res.all_ok
+            ? '<div class="qualid-alert qualid-alert-success" style="margin-bottom:14px;">' +
+              '<i class="fa fa-check-circle"></i> All ' + res.checks.length + ' checks passed &mdash; system is ready for calls.</div>'
+            : '<div class="qualid-alert qualid-alert-error" style="margin-bottom:14px;">' +
+              '<i class="fa fa-exclamation-circle"></i> ' + res.fail_count + ' issue' +
+              (res.fail_count !== 1 ? 's' : '') + ' detected. Review the items below and click <b>Fix</b> to resolve each one.</div>';
+
+        var rows = '';
+        $.each(res.checks, function (i, check) {
+            var iconHtml = check.ok
+                ? '<i class="fa fa-check-circle qualid-diag-ok"></i>'
+                : '<i class="fa fa-times-circle qualid-diag-fail"></i>';
+
+            var fixBtn = (!check.ok && check.fix)
+                ? '<button class="qualid-diag-fix-btn qualid-btn qualid-btn-outline qualid-btn-sm"' +
+                  ' data-fix="' + escHtml(check.fix) + '">' +
+                  '<i class="fa fa-wrench"></i> Fix</button>'
+                : '';
+
+            var detail = check.detail
+                ? '<span class="qualid-diag-detail">' + check.detail + '</span>'
+                : '';
+
+            var action = (!check.ok && check.action)
+                ? '<div class="qualid-diag-action"><i class="fa fa-long-arrow-right"></i> ' + check.action + '</div>'
+                : '';
+
+            rows += '<div class="qualid-diag-row' + (check.ok ? '' : ' qualid-diag-row-fail') + '">' +
+                    '<div class="qualid-diag-row-main">' +
+                    '<div class="qualid-diag-row-left">' +
+                    iconHtml +
+                    '<div><span class="qualid-diag-label">' + escHtml(check.label) + '</span>' + detail + '</div>' +
+                    '</div>' +
+                    fixBtn +
+                    '</div>' +
+                    action +
+                    '</div>';
+        });
+
+        $body.html(banner + '<div class="qualid-diag-list">' + rows + '</div>');
+
+        $body.find('.qualid-diag-fix-btn').on('click', function () {
+            runFix($(this).data('fix'), $(this));
+        });
+    }
+
+    function runFix(fixName, $btn) {
+        if ($btn) {
+            $btn.prop('disabled', true).html('<span class="qualid-spinner"></span>');
+        }
+
+        $.ajax({
+            url:      BASE_URL,
+            method:   'POST',
+            data:     { ajax_action: 'run_fix', fix: fixName },
+            dataType: 'json',
+        }).done(function (res) {
+            if (res.success) {
+                // Brief success flash then reload diagnostics
+                if ($btn) {
+                    $btn.html('<i class="fa fa-check"></i>').css('color', '#22c55e');
+                }
+                setTimeout(loadDiagnostics, 600);
+            } else {
+                alert('Fix failed: ' + (res.error || 'Unknown error'));
+                if ($btn) { $btn.prop('disabled', false).html('<i class="fa fa-wrench"></i> Fix'); }
+            }
+        }).fail(function () {
+            alert('Fix request failed \u2014 network error.');
+            if ($btn) { $btn.prop('disabled', false).html('<i class="fa fa-wrench"></i> Fix'); }
+        });
+    }
+
+    // -------------------------------------------------------------------------
     // Init
     // -------------------------------------------------------------------------
 
@@ -378,6 +495,16 @@ var QualidRemote = (function ($) {
             }, 5 * 60 * 1000);
         }
 
+        // Diagnostics card
+        if ($('#qualid-diag-card').length) {
+            loadDiagnostics();
+            $('#qualid-diag-refresh-btn').on('click', loadDiagnostics);
+            $('#qualid-diag-fix-all-btn').on('click', function () {
+                runFix('all', null);
+                $(this).prop('disabled', true).html('<span class="qualid-spinner"></span> Fixing&hellip;');
+            });
+        }
+
         // Check GitHub for a newer release (silently, on page load)
         if ($('#qualid-update-badge').length) {
             checkForUpdate();
@@ -412,8 +539,9 @@ var QualidRemote = (function ($) {
     }
 
     return {
-        init:           init,
-        checkForUpdate: checkForUpdate,
+        init:            init,
+        checkForUpdate:  checkForUpdate,
+        loadDiagnostics: loadDiagnostics,
     };
 
 }(jQuery));

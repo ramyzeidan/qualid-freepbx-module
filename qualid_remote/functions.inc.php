@@ -1187,6 +1187,221 @@ function qualid_remove_cron() {
 }
 
 // ---------------------------------------------------------------------------
+// Diagnostics
+// ---------------------------------------------------------------------------
+
+/**
+ * Run all system self-checks and return a structured result for the admin UI.
+ * No side-effects — read-only.  Safe to call on every page load.
+ *
+ * Each check item:
+ *   id      — machine identifier
+ *   label   — human label
+ *   ok      — bool
+ *   detail  — short status string (may contain safe HTML)
+ *   fix     — fix key passed to run_fix AJAX handler (null if no auto-fix)
+ *   action  — HTML recommendation string shown when ok=false
+ */
+function qualid_run_diagnostics() {
+    $checks = [];
+
+    // 1. socat binary present
+    $socat_bin       = '/usr/bin/socat';
+    $socat_installed = file_exists($socat_bin) && is_executable($socat_bin);
+    $checks[] = [
+        'id'     => 'socat_installed',
+        'label'  => 'socat binary installed',
+        'ok'     => $socat_installed,
+        'detail' => $socat_installed ? $socat_bin : 'Not found at /usr/bin/socat',
+        'fix'    => null,
+        'action' => $socat_installed ? null
+            : 'Install socat: <code>yum install socat -y</code> (RHEL/CentOS) or <code>apt-get install socat -y</code> (Debian/Ubuntu)',
+    ];
+
+    // 2. TURN UDP-over-TCP tunnel running
+    exec('pgrep -f "socat.*UDP4-LISTEN:3479" 2>/dev/null', $pids);
+    $tunnel_ok = !empty($pids);
+    $checks[] = [
+        'id'     => 'tunnel_running',
+        'label'  => 'TURN UDP&#x2011;over&#x2011;TCP tunnel active',
+        'ok'     => $tunnel_ok,
+        'detail' => $tunnel_ok ? 'PID&nbsp;' . implode(', ', array_map('intval', $pids)) : 'Not running',
+        'fix'    => $socat_installed ? 'tunnel' : null,
+        'action' => $tunnel_ok ? null
+            : ($socat_installed
+                ? 'The tunnel relays Asterisk TURN traffic over TCP (required on networks that block UDP). Click <b>Fix</b> to start it immediately, or wait up to 60&nbsp;s for the automatic watchdog.'
+                : 'Install socat first (see above).'),
+    ];
+
+    // 3. TURN credentials stored in config
+    $turn_domain = qualid_get('turn_domain', '');
+    $turn_secret = qualid_get('turn_secret', '');
+    $creds_ok    = !empty($turn_domain) && !empty($turn_secret);
+    $checks[] = [
+        'id'     => 'turn_creds',
+        'label'  => 'TURN credentials provisioned',
+        'ok'     => $creds_ok,
+        'detail' => $creds_ok ? htmlspecialchars($turn_domain) : 'turn_domain or turn_secret missing from config',
+        'fix'    => null,
+        'action' => $creds_ok ? null
+            : 'TURN credentials are missing. Click <b>Disconnect</b> then log in again to re-provision.',
+    ];
+
+    // 4. rtp_additional.conf writable
+    $rtp_path     = '/etc/asterisk/rtp_additional.conf';
+    $rtp_exists   = file_exists($rtp_path);
+    $rtp_writable = $rtp_exists && is_writable($rtp_path);
+    $checks[] = [
+        'id'     => 'rtp_writable',
+        'label'  => 'rtp_additional.conf writable',
+        'ok'     => $rtp_writable,
+        'detail' => !$rtp_exists   ? 'File not found'
+                  : (!$rtp_writable ? 'Exists but not writable by current user'
+                  :                   $rtp_path),
+        'fix'    => null,
+        'action' => $rtp_writable ? null
+            : 'Run: <code>chown asterisk:asterisk /etc/asterisk/rtp_additional.conf &amp;&amp; chmod 664 /etc/asterisk/rtp_additional.conf</code>',
+    ];
+
+    // 5. TURN block present in rtp_additional.conf
+    $rtp_content   = $rtp_exists ? @file_get_contents($rtp_path) : false;
+    $turn_block_ok = ($rtp_content !== false && strpos($rtp_content, 'qualid-turn-start') !== false);
+
+    $turn_detail = 'Not found &mdash; TURN config is missing';
+    if ($turn_block_ok) {
+        if (preg_match('/turnusername=(\d+):/', $rtp_content, $m)) {
+            $expires_in = (int)$m[1] - time();
+            if ($expires_in > 3600) {
+                $h = floor($expires_in / 3600);
+                $turn_detail = "Present &mdash; credentials expire in {$h}h";
+            } elseif ($expires_in > 0) {
+                $min = ceil($expires_in / 60);
+                $turn_detail = "Present &mdash; credentials expire in {$min}&nbsp;min (refreshing soon)";
+            } else {
+                $turn_detail = 'Present &mdash; credentials <b>expired</b>, will refresh on next cron run';
+            }
+        } else {
+            $turn_detail = 'Present';
+        }
+    }
+
+    $checks[] = [
+        'id'     => 'turn_block',
+        'label'  => 'TURN config block in rtp_additional.conf',
+        'ok'     => $turn_block_ok,
+        'detail' => $turn_detail,
+        'fix'    => ($creds_ok && $rtp_writable) ? 'rtp_conf' : null,
+        'action' => $turn_block_ok ? null
+            : 'FreePBX may have regenerated rtp_additional.conf after Apply Config, wiping the TURN block. Click <b>Fix</b> to rewrite it now, or wait up to 60&nbsp;s for the automatic watchdog.',
+    ];
+
+    // 6. Stale STUN/TURN overrides in rtp.conf
+    $rtp_main_content = @file_get_contents('/etc/asterisk/rtp.conf');
+    $stale_main = false;
+    if ($rtp_main_content !== false) {
+        $stale_main = (bool) preg_match('/\[general\]\(\+\)[^\[]*?(stunaddr|turnaddr)=/s', $rtp_main_content);
+        if (!$stale_main) {
+            $stale_main = (bool) preg_match('/^stunaddr=/m', $rtp_main_content);
+        }
+    }
+    $checks[] = [
+        'id'     => 'stale_rtp_main',
+        'label'  => 'No stale STUN/TURN overrides in rtp.conf',
+        'ok'     => !$stale_main,
+        'detail' => $stale_main ? 'Found stunaddr= / turnaddr= &mdash; overriding correct settings' : 'Clean',
+        'fix'    => $stale_main ? 'overrides' : null,
+        'action' => $stale_main
+            ? 'rtp.conf contains hardcoded STUN/TURN settings that silently override the Quali-D config and cause 10&ndash;20&nbsp;s call delays. Click <b>Fix</b> to remove them.'
+            : null,
+    ];
+
+    // 7. Stale STUN/TURN overrides in rtp_custom.conf
+    $rtp_custom_content = @file_get_contents('/etc/asterisk/rtp_custom.conf');
+    $stale_custom = ($rtp_custom_content !== false)
+        && (bool) preg_match('/^(stunaddr|turnaddr|turnusername|turnpassword)=/m', $rtp_custom_content);
+    $checks[] = [
+        'id'     => 'stale_rtp_custom',
+        'label'  => 'No stale STUN/TURN overrides in rtp_custom.conf',
+        'ok'     => !$stale_custom,
+        'detail' => $stale_custom
+            ? 'Found STUN/TURN settings that override the correct config'
+            : ($rtp_custom_content === false ? 'File not present (OK)' : 'Clean'),
+        'fix'    => $stale_custom ? 'overrides' : null,
+        'action' => $stale_custom
+            ? 'rtp_custom.conf has hardcoded STUN/TURN settings that override the Quali-D config. Click <b>Fix</b> to remove them.'
+            : null,
+    ];
+
+    // 8. Cron watchdog configured
+    $cron_file         = '/etc/cron.d/qualid_remote';
+    $cron_content      = @file_get_contents($cron_file);
+    $cron_present      = ($cron_content !== false);
+    $cron_has_watchdog = $cron_present && strpos($cron_content, 'deferred_rtp.php') !== false;
+    $cron_has_reboot   = $cron_present && strpos($cron_content, '@reboot') !== false;
+    $cron_ok           = $cron_has_watchdog;
+
+    if (!$cron_present) {
+        $cron_detail = 'File not found';
+    } elseif (!$cron_has_watchdog) {
+        $cron_detail = 'Old format &mdash; per-minute watchdog entry missing';
+    } else {
+        $parts = ['Per-minute watchdog active'];
+        if ($cron_has_reboot) { $parts[] = '@reboot socat entry present'; }
+        $cron_detail = implode(', ', $parts);
+    }
+
+    $checks[] = [
+        'id'     => 'cron_watchdog',
+        'label'  => 'Cron watchdog configured',
+        'ok'     => $cron_ok,
+        'detail' => $cron_detail,
+        'fix'    => 'cron',
+        'action' => $cron_ok ? null
+            : (!$cron_present
+                ? 'Cron file is missing. Click <b>Fix</b> to recreate it, or trigger an Apply Config.'
+                : 'Cron file has an old format without the per-minute watchdog. Click <b>Fix</b> to update.'),
+    ];
+
+    // 9. PJSIP trunk configured
+    $pjsip_files  = [
+        '/etc/asterisk/pjsip_additional.conf',
+        '/etc/asterisk/pjsip.conf',
+        '/etc/asterisk/pjsip_custom.conf',
+    ];
+    $pjsip_ok     = false;
+    $pjsip_source = '';
+    foreach ($pjsip_files as $pf) {
+        $pfc = @file_get_contents($pf);
+        if ($pfc !== false && strpos($pfc, 'QualidRemote') !== false) {
+            $pjsip_ok     = true;
+            $pjsip_source = basename($pf);
+            if (strpos($pfc, 'webrtc=yes') !== false) {
+                $pjsip_source .= ' (WebRTC enabled)';
+            }
+            break;
+        }
+    }
+    $checks[] = [
+        'id'     => 'pjsip_trunk',
+        'label'  => 'PJSIP trunk configured',
+        'ok'     => $pjsip_ok,
+        'detail' => $pjsip_ok ? htmlspecialchars($pjsip_source) : 'QualidRemote endpoint not found in PJSIP config',
+        'fix'    => null,
+        'action' => $pjsip_ok ? null
+            : 'PJSIP trunk not written yet. Go to <b>Admin &rarr; Apply Config</b> to generate it.',
+    ];
+
+    $failures = array_filter($checks, function ($c) { return !$c['ok']; });
+
+    return [
+        'success'    => true,
+        'checks'     => $checks,
+        'all_ok'     => empty($failures),
+        'fail_count' => count($failures),
+    ];
+}
+
+// ---------------------------------------------------------------------------
 // Self-update from GitHub releases
 // ---------------------------------------------------------------------------
 
