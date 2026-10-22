@@ -442,13 +442,21 @@ function qualid_write_rtp_conf() {
     // instead of the VPS IP directly, because all outbound UDP is blocked.
     $stun_turn_addr = '127.0.0.1:3479';
 
-    // No stunaddr — we don't need server-reflexive (srflx) candidates because
-    // ALL outbound UDP from FreePBX is blocked by the ISP. srflx candidates
-    // would never work.  Removing stunaddr eliminates the full STUN gathering
-    // phase (up to 1.6s of retransmission timeouts per interface) and speeds
-    // up call setup significantly. Only TURN relay candidates are useful here.
+    // Write to rtp_custom.conf, NOT rtp_additional.conf.
+    //
+    // rtp_additional.conf is regenerated from scratch on every FreePBX
+    // Apply Config, wiping anything we write there.  rtp_custom.conf is
+    // the standard FreePBX "user customisations" file — it is NEVER
+    // regenerated and survives every Apply Config cycle.
+    //
+    // We confirmed rtp_custom.conf is loaded by Asterisk (stale settings
+    // there previously overrode our config, so it must be included).
+    //
+    // [general](+) is the standard Asterisk syntax for appending to an
+    // already-defined section across #include files.
     $turn_block = <<<CONF
 ; -- qualid-turn-start --
+[general](+)
 icesupport=yes
 turnaddr={$stun_turn_addr}
 turnusername={$username}
@@ -456,25 +464,29 @@ turnpassword={$password}
 ; -- qualid-turn-end --
 CONF;
 
-    $path = '/etc/asterisk/rtp_additional.conf';
+    $path    = '/etc/asterisk/rtp_custom.conf';
     $content = @file_get_contents($path);
-    if ($content === false) {
-        return; // rtp_additional.conf doesn't exist yet
-    }
+    if ($content === false) { $content = ''; }  // create if absent
 
-    // Remove any existing qualid TURN block AND any leftover stunaddr/turnaddr
-    // lines from earlier module versions that wrote without markers
+    // Remove any existing qualid TURN block and bare stale STUN/TURN lines
     $content = preg_replace('/; -- qualid-turn-start --.*?; -- qualid-turn-end --\n?/s', '', $content);
     $content = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword)=.*\n?/m', '', $content);
 
-    // Append the TURN block
     $content = rtrim($content) . "\n" . $turn_block . "\n";
     file_put_contents($path, $content);
 
-    // Clean stale STUN/TURN settings from rtp.conf and rtp_custom.conf.
-    // Earlier manual debugging left a [general](+) block in rtp.conf and
-    // a stunaddr line in rtp_custom.conf.  Because these files are loaded
-    // AFTER rtp_additional.conf, they override our settings.
+    // Also erase our old block from rtp_additional.conf if it's still there
+    // from a previous module version (cleanup only — we no longer write there).
+    $additional = '/etc/asterisk/rtp_additional.conf';
+    $ac = @file_get_contents($additional);
+    if ($ac !== false && strpos($ac, 'qualid-turn-start') !== false) {
+        $ac = preg_replace('/; -- qualid-turn-start --.*?; -- qualid-turn-end --\n?/s', '', $ac);
+        $ac = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword)=.*\n?/m', '', $ac);
+        @file_put_contents($additional, $ac);
+    }
+
+    // Clean stale STUN/TURN overrides from rtp.conf (do NOT touch rtp_custom.conf
+    // here — we own it now and just wrote our block above).
     qualid_clean_rtp_overrides();
 
     // Pin TURN hostname in /etc/hosts as DNS safety net
@@ -489,15 +501,9 @@ CONF;
  * would override the correct settings we write to rtp_additional.conf.
  */
 function qualid_clean_rtp_overrides() {
-    // --- rtp_custom.conf: strip any stunaddr/turnaddr lines ---
-    $custom = '/etc/asterisk/rtp_custom.conf';
-    $c = @file_get_contents($custom);
-    if ($c !== false) {
-        $cleaned = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword|icesupport)=.*\n?/m', '', $c);
-        if ($cleaned !== $c) {
-            file_put_contents($custom, $cleaned);
-        }
-    }
+    // NOTE: We do NOT touch rtp_custom.conf here.  Our module now owns that
+    // file for TURN settings (using [general](+) blocks that survive Apply Config).
+    // Only clean rtp.conf which may still have stale manual overrides.
 
     // --- rtp.conf: remove any [general](+) block with stun/turn settings ---
     $rtp = '/etc/asterisk/rtp.conf';
@@ -1247,33 +1253,37 @@ function qualid_run_diagnostics() {
             : 'TURN credentials are missing. Click <b>Disconnect</b> then log in again to re-provision.',
     ];
 
-    // 4. rtp_additional.conf writable
-    $rtp_path     = '/etc/asterisk/rtp_additional.conf';
+    // 4. rtp_custom.conf writable
+    // We write TURN settings here because FreePBX never regenerates this file,
+    // whereas rtp_additional.conf is wiped on every Apply Config.
+    $rtp_path     = '/etc/asterisk/rtp_custom.conf';
+    $rtp_dir_ok   = is_writable('/etc/asterisk');
     $rtp_exists   = file_exists($rtp_path);
-    $rtp_writable = $rtp_exists && is_writable($rtp_path);
+    // Writable = file exists and writable, OR file absent but directory writable (we'll create it)
+    $rtp_writable = ($rtp_exists && is_writable($rtp_path)) || (!$rtp_exists && $rtp_dir_ok);
     $checks[] = [
         'id'     => 'rtp_writable',
-        'label'  => 'rtp_additional.conf writable',
+        'label'  => 'rtp_custom.conf writable',
         'ok'     => $rtp_writable,
-        'detail' => !$rtp_exists   ? 'File not found'
-                  : (!$rtp_writable ? 'Exists but not writable by current user'
-                  :                   $rtp_path),
+        'detail' => $rtp_writable
+                  ? ($rtp_exists ? $rtp_path : '/etc/asterisk/ writable — file will be created')
+                  : ($rtp_exists ? 'Exists but not writable by current user' : '/etc/asterisk/ not writable'),
         'fix'    => null,
         'action' => $rtp_writable ? null
-            : 'Run: <code>chown asterisk:asterisk /etc/asterisk/rtp_additional.conf &amp;&amp; chmod 664 /etc/asterisk/rtp_additional.conf</code>',
+            : 'Run: <code>chown asterisk:asterisk /etc/asterisk/rtp_custom.conf &amp;&amp; chmod 664 /etc/asterisk/rtp_custom.conf</code>',
     ];
 
-    // 5. TURN block present in rtp_additional.conf
+    // 5. TURN block present in rtp_custom.conf
     $rtp_content   = $rtp_exists ? @file_get_contents($rtp_path) : false;
     $turn_block_ok = ($rtp_content !== false && strpos($rtp_content, 'qualid-turn-start') !== false);
 
-    $turn_detail = 'Not found &mdash; TURN config is missing';
+    $turn_detail = 'Not found in rtp_custom.conf &mdash; TURN config is missing';
     if ($turn_block_ok) {
         if (preg_match('/turnusername=(\d+):/', $rtp_content, $m)) {
             $expires_in = (int)$m[1] - time();
             if ($expires_in > 3600) {
                 $h = floor($expires_in / 3600);
-                $turn_detail = "Present &mdash; credentials expire in {$h}h";
+                $turn_detail = "Present in rtp_custom.conf &mdash; credentials expire in {$h}h";
             } elseif ($expires_in > 0) {
                 $min = ceil($expires_in / 60);
                 $turn_detail = "Present &mdash; credentials expire in {$min}&nbsp;min (refreshing soon)";
@@ -1281,18 +1291,18 @@ function qualid_run_diagnostics() {
                 $turn_detail = 'Present &mdash; credentials <b>expired</b>, will refresh on next cron run';
             }
         } else {
-            $turn_detail = 'Present';
+            $turn_detail = 'Present in rtp_custom.conf';
         }
     }
 
     $checks[] = [
         'id'     => 'turn_block',
-        'label'  => 'TURN config block in rtp_additional.conf',
+        'label'  => 'TURN config block in rtp_custom.conf',
         'ok'     => $turn_block_ok,
         'detail' => $turn_detail,
         'fix'    => ($creds_ok && $rtp_writable) ? 'rtp_conf' : null,
         'action' => $turn_block_ok ? null
-            : 'FreePBX may have regenerated rtp_additional.conf after Apply Config, wiping the TURN block. Click <b>Fix</b> to rewrite it now, or wait up to 60&nbsp;s for the automatic watchdog.',
+            : 'TURN config block is missing from rtp_custom.conf. Click <b>Fix</b> to write it now.',
     ];
 
     // 6. Stale STUN/TURN overrides in rtp.conf
@@ -1315,16 +1325,22 @@ function qualid_run_diagnostics() {
             : null,
     ];
 
-    // 7. Stale STUN/TURN overrides in rtp_custom.conf
+    // 7. No foreign STUN/TURN lines in rtp_custom.conf outside our sentinel block
+    // (We own rtp_custom.conf for our [general](+) TURN block — we only check
+    //  for foreign settings that someone may have added manually outside our block.)
     $rtp_custom_content = @file_get_contents('/etc/asterisk/rtp_custom.conf');
-    $stale_custom = ($rtp_custom_content !== false)
-        && (bool) preg_match('/^(stunaddr|turnaddr|turnusername|turnpassword)=/m', $rtp_custom_content);
+    // Strip our own sentinel block before scanning for foreign settings
+    $custom_outside_block = ($rtp_custom_content !== false)
+        ? preg_replace('/; -- qualid-turn-start --.*?; -- qualid-turn-end --\n?/s', '', $rtp_custom_content)
+        : '';
+    $stale_custom = !empty($custom_outside_block)
+        && (bool) preg_match('/^(stunaddr|turnaddr|turnusername|turnpassword)=/m', $custom_outside_block);
     $checks[] = [
         'id'     => 'stale_rtp_custom',
-        'label'  => 'No stale STUN/TURN overrides in rtp_custom.conf',
+        'label'  => 'No foreign STUN/TURN in rtp_custom.conf',
         'ok'     => !$stale_custom,
         'detail' => $stale_custom
-            ? 'Found STUN/TURN settings that override the correct config'
+            ? 'Found STUN/TURN settings outside Quali-D block &mdash; they may override the correct config'
             : ($rtp_custom_content === false ? 'File not present (OK)' : 'Clean'),
         'fix'    => $stale_custom ? 'overrides' : null,
         'action' => $stale_custom
