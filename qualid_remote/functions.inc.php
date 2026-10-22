@@ -400,17 +400,9 @@ function qualid_setup_stun_tunnel() {
     // Start socat as a fully detached background process.
     // setsid creates a new session so the process survives when fwconsole
     // (Apply Config) exits and kills its process group.
-    exec("setsid /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &");
+    exec("setsid /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay </dev/null > /dev/null 2>&1 &");
 
-    // Write a @reboot cron entry so the tunnel auto-starts after a reboot
-    $cron_file = '/etc/cron.d/qualid_stun_tunnel';
-    $cron_line = "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
-    $current   = @file_get_contents($cron_file);
-    if ($current !== $cron_line) {
-        @file_put_contents($cron_file, $cron_line);
-        @chmod($cron_file, 0644);
-    }
-
+    // Reboot persistence is handled by the @reboot entry in qualid_write_cron()
     return true;
 }
 
@@ -1136,14 +1128,10 @@ function qualid_remote_get_config() {
         qualid_write_pjsip($cfg);
         qualid_write_dialplan($cfg);
 
-        // Defer the RTP config write: FreePBX regenerates rtp_additional.conf
-        // during Apply Config, and our hook may run BEFORE that regeneration
-        // completes — wiping our TURN block.  By deferring 3 seconds in a
-        // setsid subshell, we ensure (a) rtp_additional.conf is fully
-        // regenerated first, and (b) the process survives fwconsole exit.
-        $php    = PHP_BINARY ?: '/usr/bin/php';
-        $helper = dirname(__FILE__) . '/deferred_rtp.php';
-        exec("setsid bash -c 'sleep 3 && {$php} {$helper}' > /dev/null 2>&1 &");
+        // Write RTP config now (best-effort — FreePBX may regenerate
+        // rtp_additional.conf after this hook, wiping our TURN block).
+        // The per-minute cron watchdog re-applies it within 60 seconds.
+        qualid_write_rtp_conf();
     }
 
     qualid_push_pbx_host($token);
@@ -1161,15 +1149,27 @@ function qualid_remote_get_config() {
 }
 
 /**
- * Write /etc/cron.d/qualid_remote so the background sync script runs every
- * 5 minutes as the asterisk user.  Safe to call multiple times — idempotent.
+ * Write /etc/cron.d/qualid_remote with two jobs:
+ *
+ * 1. Every 5 min — full sync (extensions, CDR, TURN credential refresh)
+ * 2. Every 1 min — lightweight RTP watchdog that ensures the TURN config
+ *    and socat tunnel are present.  This covers the case where FreePBX's
+ *    Apply Config regenerates rtp_additional.conf AFTER our hook writes
+ *    to it, wiping the TURN block.  The watchdog re-applies within 60s.
+ *
+ * Safe to call multiple times — idempotent.
  */
 function qualid_write_cron() {
-    $sync_script = dirname(__FILE__) . '/sync.php';
+    $module_dir  = dirname(__FILE__);
+    $sync_script = $module_dir . '/sync.php';
+    $rtp_script  = $module_dir . '/deferred_rtp.php';
     $php_bin     = PHP_BINARY ?: '/usr/bin/php';
     $cron_file   = '/etc/cron.d/qualid_remote';
-    $content     = "# Quali-D Connect — automatic sync (written by qualid_remote_get_config)\n"
-                 . "*/5 * * * * asterisk {$php_bin} {$sync_script} > /dev/null 2>&1\n";
+    $cloud_ip    = QUALID_CLOUD_IP;
+    $content     = "# Quali-D Connect — automatic sync & RTP watchdog\n"
+                 . "*/5 * * * * asterisk {$php_bin} {$sync_script} > /dev/null 2>&1\n"
+                 . "* * * * * asterisk {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
+                 . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
 
     @file_put_contents($cron_file, $content);
     @chmod($cron_file, 0644);
