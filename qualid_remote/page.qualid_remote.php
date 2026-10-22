@@ -44,6 +44,8 @@ function qualid_complete_login($token, $user_name, $company_name) {
     qualid_set('trunk_user',   $data['trunk_username']);
     qualid_set('trunk_pass',   $data['trunk_password']);
     qualid_set('turn_server',  isset($data['turn_server']) ? $data['turn_server'] : '');
+    qualid_set('turn_domain',  isset($data['turn_domain']) ? $data['turn_domain'] : (isset($data['turn_server']) ? $data['turn_server'] : ''));
+    qualid_set('turn_secret',  isset($data['turn_secret']) ? $data['turn_secret'] : '');
     qualid_set('connected',    '1');
     qualid_set('connected_at', date('Y-m-d H:i:s'));
     qualid_set('last_error',   '');

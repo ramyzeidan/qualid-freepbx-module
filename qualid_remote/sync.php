@@ -30,6 +30,7 @@ if (empty($token)) {
     exit(0); // Not connected — nothing to do
 }
 
+qualid_write_rtp_conf();   // Rotate TURN credentials (24h TTL, refreshed every 5 min)
 qualid_push_pbx_host($token);
 qualid_sync_extensions($token);
 qualid_sync_queues($token);
