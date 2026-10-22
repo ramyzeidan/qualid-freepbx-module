@@ -1216,12 +1216,12 @@ function qualid_run_diagnostics() {
     $socat_installed = file_exists($socat_bin) && is_executable($socat_bin);
     $checks[] = [
         'id'     => 'socat_installed',
-        'label'  => 'socat binary installed',
+        'label'  => 'Network relay binary installed',
         'ok'     => $socat_installed,
-        'detail' => $socat_installed ? $socat_bin : 'Not found at /usr/bin/socat',
+        'detail' => $socat_installed ? 'Available' : 'Not installed',
         'fix'    => null,
         'action' => $socat_installed ? null
-            : 'Install socat: <code>yum install socat -y</code> (RHEL/CentOS) or <code>apt-get install socat -y</code> (Debian/Ubuntu)',
+            : 'A required system binary is missing. Contact your system administrator to install it.',
     ];
 
     // 2. TURN UDP-over-TCP tunnel running
@@ -1229,14 +1229,14 @@ function qualid_run_diagnostics() {
     $tunnel_ok = !empty($pids);
     $checks[] = [
         'id'     => 'tunnel_running',
-        'label'  => 'TURN UDP&#x2011;over&#x2011;TCP tunnel active',
+        'label'  => 'SIP media relay active',
         'ok'     => $tunnel_ok,
-        'detail' => $tunnel_ok ? 'PID&nbsp;' . implode(', ', array_map('intval', $pids)) : 'Not running',
+        'detail' => $tunnel_ok ? 'Active' : 'Not running',
         'fix'    => $socat_installed ? 'tunnel' : null,
         'action' => $tunnel_ok ? null
             : ($socat_installed
-                ? 'The tunnel relays Asterisk TURN traffic over TCP (required on networks that block UDP). Click <b>Fix</b> to start it immediately, or wait up to 60&nbsp;s for the automatic watchdog.'
-                : 'Install socat first (see above).'),
+                ? 'The SIP media relay is not running. Click <b>Fix</b> to restart it, or wait up to 60&nbsp;s for the automatic watchdog.'
+                : 'Install the network relay binary first (see above).'),
     ];
 
     // 3. TURN credentials stored in config
@@ -1247,7 +1247,7 @@ function qualid_run_diagnostics() {
         'id'     => 'turn_creds',
         'label'  => 'TURN credentials provisioned',
         'ok'     => $creds_ok,
-        'detail' => $creds_ok ? htmlspecialchars($turn_domain) : 'turn_domain or turn_secret missing from config',
+        'detail' => $creds_ok ? 'Provisioned' : 'Credentials missing from config',
         'fix'    => null,
         'action' => $creds_ok ? null
             : 'TURN credentials are missing. Click <b>Disconnect</b> then log in again to re-provision.',
@@ -1263,46 +1263,46 @@ function qualid_run_diagnostics() {
     $rtp_writable = ($rtp_exists && is_writable($rtp_path)) || (!$rtp_exists && $rtp_dir_ok);
     $checks[] = [
         'id'     => 'rtp_writable',
-        'label'  => 'rtp_custom.conf writable',
+        'label'  => 'RTP configuration writable',
         'ok'     => $rtp_writable,
         'detail' => $rtp_writable
-                  ? ($rtp_exists ? $rtp_path : '/etc/asterisk/ writable — file will be created')
-                  : ($rtp_exists ? 'Exists but not writable by current user' : '/etc/asterisk/ not writable'),
+                  ? 'OK'
+                  : ($rtp_exists ? 'Exists but not writable by the web server user' : 'Configuration directory not writable'),
         'fix'    => null,
         'action' => $rtp_writable ? null
-            : 'Run: <code>chown asterisk:asterisk /etc/asterisk/rtp_custom.conf &amp;&amp; chmod 664 /etc/asterisk/rtp_custom.conf</code>',
+            : 'The RTP configuration file is not writable. Contact your system administrator to fix file permissions on the Asterisk configuration directory.',
     ];
 
     // 5. TURN block present in rtp_custom.conf
     $rtp_content   = $rtp_exists ? @file_get_contents($rtp_path) : false;
     $turn_block_ok = ($rtp_content !== false && strpos($rtp_content, 'qualid-turn-start') !== false);
 
-    $turn_detail = 'Not found in rtp_custom.conf &mdash; TURN config is missing';
+    $turn_detail = 'Not found &mdash; media relay config is missing';
     if ($turn_block_ok) {
         if (preg_match('/turnusername=(\d+):/', $rtp_content, $m)) {
             $expires_in = (int)$m[1] - time();
             if ($expires_in > 3600) {
                 $h = floor($expires_in / 3600);
-                $turn_detail = "Present in rtp_custom.conf &mdash; credentials expire in {$h}h";
+                $turn_detail = "Active &mdash; credentials expire in {$h}h";
             } elseif ($expires_in > 0) {
                 $min = ceil($expires_in / 60);
-                $turn_detail = "Present &mdash; credentials expire in {$min}&nbsp;min (refreshing soon)";
+                $turn_detail = "Active &mdash; credentials expire in {$min}&nbsp;min (refreshing soon)";
             } else {
-                $turn_detail = 'Present &mdash; credentials <b>expired</b>, will refresh on next cron run';
+                $turn_detail = 'Active &mdash; credentials <b>expired</b>, will refresh on next cron run';
             }
         } else {
-            $turn_detail = 'Present in rtp_custom.conf';
+            $turn_detail = 'Active';
         }
     }
 
     $checks[] = [
         'id'     => 'turn_block',
-        'label'  => 'TURN config block in rtp_custom.conf',
+        'label'  => 'Media relay configuration applied',
         'ok'     => $turn_block_ok,
         'detail' => $turn_detail,
         'fix'    => ($creds_ok && $rtp_writable) ? 'rtp_conf' : null,
         'action' => $turn_block_ok ? null
-            : 'TURN config block is missing from rtp_custom.conf. Click <b>Fix</b> to write it now.',
+            : 'Media relay configuration is missing. Click <b>Fix</b> to apply it now, or wait up to 60&nbsp;s for the automatic watchdog.',
     ];
 
     // 6. Stale STUN/TURN overrides in rtp.conf
@@ -1316,12 +1316,12 @@ function qualid_run_diagnostics() {
     }
     $checks[] = [
         'id'     => 'stale_rtp_main',
-        'label'  => 'No stale STUN/TURN overrides in rtp.conf',
+        'label'  => 'No conflicting RTP overrides',
         'ok'     => !$stale_main,
-        'detail' => $stale_main ? 'Found stunaddr= / turnaddr= &mdash; overriding correct settings' : 'Clean',
+        'detail' => $stale_main ? 'Conflicting settings found &mdash; may cause call audio delays' : 'Clean',
         'fix'    => $stale_main ? 'overrides' : null,
         'action' => $stale_main
-            ? 'rtp.conf contains hardcoded STUN/TURN settings that silently override the Quali-D config and cause 10&ndash;20&nbsp;s call delays. Click <b>Fix</b> to remove them.'
+            ? 'Conflicting RTP settings are overriding the Quali-D configuration and may cause 10&ndash;20&nbsp;s call delays. Click <b>Fix</b> to remove them.'
             : null,
     ];
 
@@ -1337,14 +1337,14 @@ function qualid_run_diagnostics() {
         && (bool) preg_match('/^(stunaddr|turnaddr|turnusername|turnpassword)=/m', $custom_outside_block);
     $checks[] = [
         'id'     => 'stale_rtp_custom',
-        'label'  => 'No foreign STUN/TURN in rtp_custom.conf',
+        'label'  => 'No conflicting custom RTP settings',
         'ok'     => !$stale_custom,
         'detail' => $stale_custom
-            ? 'Found STUN/TURN settings outside Quali-D block &mdash; they may override the correct config'
-            : ($rtp_custom_content === false ? 'File not present (OK)' : 'Clean'),
+            ? 'Conflicting settings found outside Quali-D block &mdash; may override correct config'
+            : ($rtp_custom_content === false ? 'Not present (OK)' : 'Clean'),
         'fix'    => $stale_custom ? 'overrides' : null,
         'action' => $stale_custom
-            ? 'rtp_custom.conf has hardcoded STUN/TURN settings that override the Quali-D config. Click <b>Fix</b> to remove them.'
+            ? 'Conflicting RTP settings are overriding the Quali-D configuration. Click <b>Fix</b> to remove them.'
             : null,
     ];
 
@@ -1357,25 +1357,23 @@ function qualid_run_diagnostics() {
     $cron_ok           = $cron_has_watchdog;
 
     if (!$cron_present) {
-        $cron_detail = 'File not found';
+        $cron_detail = 'Not configured';
     } elseif (!$cron_has_watchdog) {
-        $cron_detail = 'Old format &mdash; per-minute watchdog entry missing';
+        $cron_detail = 'Outdated &mdash; automatic recovery entry missing';
     } else {
-        $parts = ['Per-minute watchdog active'];
-        if ($cron_has_reboot) { $parts[] = '@reboot socat entry present'; }
-        $cron_detail = implode(', ', $parts);
+        $cron_detail = $cron_has_reboot ? 'Active (includes startup recovery)' : 'Active';
     }
 
     $checks[] = [
         'id'     => 'cron_watchdog',
-        'label'  => 'Cron watchdog configured',
+        'label'  => 'Automatic recovery configured',
         'ok'     => $cron_ok,
         'detail' => $cron_detail,
         'fix'    => 'cron',
         'action' => $cron_ok ? null
             : (!$cron_present
-                ? 'Cron file is missing. Click <b>Fix</b> to recreate it, or trigger an Apply Config.'
-                : 'Cron file has an old format without the per-minute watchdog. Click <b>Fix</b> to update.'),
+                ? 'Automatic recovery is not configured. Click <b>Fix</b> to enable it.'
+                : 'Automatic recovery configuration is outdated. Click <b>Fix</b> to update it.'),
     ];
 
     // 9. PJSIP trunk configured
@@ -1409,18 +1407,24 @@ function qualid_run_diagnostics() {
         $pjsip_included = true;
     }
     $pjsip_has_creds = !empty(qualid_get('trunk_user')) && !empty(qualid_get('trunk_pass'));
+    // Build a clean detail string without internal file names
+    if ($pjsip_ok) {
+        $pjsip_webrtc = (strpos($pjsip_source, 'WebRTC') !== false);
+        $pjsip_detail = $pjsip_webrtc ? 'Configured (WebRTC enabled)' : 'Configured';
+    } else {
+        $pjsip_detail = 'Not configured';
+    }
+
     $checks[] = [
         'id'     => 'pjsip_trunk',
-        'label'  => 'PJSIP trunk configured',
+        'label'  => 'SIP trunk configured',
         'ok'     => $pjsip_ok,
-        'detail' => $pjsip_ok
-            ? htmlspecialchars($pjsip_source) . ($pjsip_included ? ', included via pjsip_custom_post.conf' : '')
-            : 'pjsip_qualid.conf not written yet',
+        'detail' => $pjsip_detail,
         'fix'    => $pjsip_has_creds ? 'pjsip' : null,
         'action' => $pjsip_ok ? null
             : ($pjsip_has_creds
-                ? 'PJSIP trunk file is missing. Click <b>Fix</b> to write it now.'
-                : 'Trunk credentials missing &mdash; Disconnect and log in again to re-provision.'),
+                ? 'SIP trunk configuration is missing. Click <b>Fix</b> to restore it.'
+                : 'Trunk credentials are missing &mdash; Disconnect and log in again to re-provision.'),
     ];
 
     $failures = array_filter($checks, function ($c) { return !$c['ok']; });
