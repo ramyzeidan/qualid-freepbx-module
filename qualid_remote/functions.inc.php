@@ -397,8 +397,10 @@ function qualid_setup_stun_tunnel() {
         return true; // already running
     }
 
-    // Start socat as a background process
-    exec("nohup /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &");
+    // Start socat as a fully detached background process.
+    // setsid creates a new session so the process survives when fwconsole
+    // (Apply Config) exits and kills its process group.
+    exec("setsid /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &");
 
     // Write a @reboot cron entry so the tunnel auto-starts after a reboot
     $cron_file = '/etc/cron.d/qualid_stun_tunnel';
@@ -477,11 +479,47 @@ CONF;
     $content = rtrim($content) . "\n" . $turn_block . "\n";
     file_put_contents($path, $content);
 
+    // Clean stale STUN/TURN settings from rtp.conf and rtp_custom.conf.
+    // Earlier manual debugging left a [general](+) block in rtp.conf and
+    // a stunaddr line in rtp_custom.conf.  Because these files are loaded
+    // AFTER rtp_additional.conf, they override our settings.
+    qualid_clean_rtp_overrides();
+
     // Pin TURN hostname in /etc/hosts as DNS safety net
     qualid_pin_hosts_entry(QUALID_CLOUD_IP, $turn_domain);
 
     // Reload the RTP module so Asterisk picks up the new TURN credentials
     exec('asterisk -rx "module reload res_rtp_asterisk.so" 2>/dev/null');
+}
+
+/**
+ * Remove stale STUN/TURN settings from rtp.conf and rtp_custom.conf that
+ * would override the correct settings we write to rtp_additional.conf.
+ */
+function qualid_clean_rtp_overrides() {
+    // --- rtp_custom.conf: strip any stunaddr/turnaddr lines ---
+    $custom = '/etc/asterisk/rtp_custom.conf';
+    $c = @file_get_contents($custom);
+    if ($c !== false) {
+        $cleaned = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword|icesupport)=.*\n?/m', '', $c);
+        if ($cleaned !== $c) {
+            file_put_contents($custom, $cleaned);
+        }
+    }
+
+    // --- rtp.conf: remove any [general](+) block with stun/turn settings ---
+    $rtp = '/etc/asterisk/rtp.conf';
+    $r = @file_get_contents($rtp);
+    if ($r !== false) {
+        // Remove the entire appended [general](+) section that contains
+        // stun/turn settings (added during manual debugging).
+        $cleaned = preg_replace('/\[general\]\(\+\)\s*\n((?:(?:icesupport|stunaddr|turnaddr|turnusername|turnpassword)=.*\n?)*)/s', '', $r);
+        // Also strip any standalone stun/turn lines outside a section header
+        $cleaned = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword)=.*\n?/m', '', $cleaned);
+        if ($cleaned !== $r) {
+            file_put_contents($rtp, $cleaned);
+        }
+    }
 }
 
 function qualid_write_dialplan($cfg) {
@@ -1100,11 +1138,12 @@ function qualid_remote_get_config() {
 
         // Defer the RTP config write: FreePBX regenerates rtp_additional.conf
         // during Apply Config, and our hook may run BEFORE that regeneration
-        // completes — wiping our TURN block.  By deferring 3 seconds, we
-        // ensure rtp_additional.conf has been fully regenerated first.
+        // completes — wiping our TURN block.  By deferring 3 seconds in a
+        // setsid subshell, we ensure (a) rtp_additional.conf is fully
+        // regenerated first, and (b) the process survives fwconsole exit.
         $php   = PHP_BINARY ?: '/usr/bin/php';
         $funcs = dirname(__FILE__) . '/functions.inc.php';
-        exec("(sleep 3 && {$php} -r \"define('FREEPBX_IS_AUTH',1); require '{$funcs}'; qualid_write_rtp_conf();\") > /dev/null 2>&1 &");
+        exec("setsid bash -c 'sleep 3 && {$php} -r \"define(\\\"FREEPBX_IS_AUTH\\\",1); require \\\"$funcs\\\"; qualid_write_rtp_conf();\"' > /dev/null 2>&1 &");
     }
 
     qualid_push_pbx_host($token);
