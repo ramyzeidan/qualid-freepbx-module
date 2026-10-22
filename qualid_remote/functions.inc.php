@@ -1533,10 +1533,10 @@ function qualid_do_github_update() {
     if ($new_ver) {
         try {
             $fpbx = FreePBX::Create();
-            $fpbx->Database->query(
-                "UPDATE modules SET version = :ver, status = 'enabled' WHERE modulename = 'qualid_remote'",
-                [':ver' => $new_ver]
+            $stmt = $fpbx->Database->prepare(
+                "UPDATE modules SET version = ? WHERE modulename = 'qualid_remote'"
             );
+            $stmt->execute([$new_ver]);
         } catch (Exception $e) {
             // Non-fatal — module works fine; Module Admin may show stale version.
         }
