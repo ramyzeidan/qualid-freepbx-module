@@ -372,6 +372,61 @@ CONF;
 }
 
 /**
+ * Set up a socat UDP-over-TCP tunnel so Asterisk's STUN/TURN traffic can reach
+ * the coturn server on the VPS even when the ISP blocks ALL outbound UDP.
+ *
+ * Tunnel chain:
+ *   Asterisk → UDP:127.0.0.1:3479 → socat(FreePBX) → TCP:VPS:80 → socat(VPS) → UDP:coturn:3478
+ *
+ * Creates a systemd service "qualid-stun-tunnel" that auto-starts on boot
+ * and restarts on failure. Idempotent — only writes/restarts when config changes.
+ */
+function qualid_setup_stun_tunnel() {
+    if (!file_exists('/usr/bin/socat')) {
+        exec('apt-get install -y socat 2>/dev/null');
+        if (!file_exists('/usr/bin/socat')) {
+            return false;
+        }
+    }
+
+    $cloud_ip     = QUALID_CLOUD_IP;
+    $service_file = '/etc/systemd/system/qualid-stun-tunnel.service';
+
+    $service = <<<SERVICE
+[Unit]
+Description=Quali-D STUN/TURN UDP-over-TCP tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SERVICE;
+
+    // Only rewrite + restart when content changes
+    $current = @file_get_contents($service_file);
+    if ($current === $service) {
+        // Already correct — just ensure it's running
+        exec('systemctl is-active qualid-stun-tunnel 2>/dev/null', $out, $rc);
+        if ($rc !== 0) {
+            exec('systemctl start qualid-stun-tunnel 2>/dev/null');
+        }
+        return true;
+    }
+
+    file_put_contents($service_file, $service);
+    exec('systemctl daemon-reload 2>/dev/null');
+    exec('systemctl enable qualid-stun-tunnel 2>/dev/null');
+    exec('systemctl restart qualid-stun-tunnel 2>/dev/null');
+    return true;
+}
+
+/**
  * Append TURN/ICE settings to /etc/asterisk/rtp_additional.conf so Asterisk's
  * native WebRTC endpoint can traverse NAT via the coturn relay on the VPS.
  *
@@ -380,6 +435,10 @@ CONF;
  * to rtp_additional.conf works because it's the first #include in rtp.conf.
  * FreePBX regenerates rtp_additional.conf on every Apply Config, but our
  * get_config() hook runs AFTER that regeneration, so the append persists.
+ *
+ * STUN/TURN addresses point to 127.0.0.1:3479 — the local socat tunnel
+ * endpoint. The tunnel converts UDP→TCP so it works even when the ISP blocks
+ * all outbound UDP (Egyptian fixed-line).
  *
  * Credentials are ephemeral HMAC-SHA1 (same scheme as coturn use-auth-secret):
  *   username = "<expiry_timestamp>:qualid_asterisk"
@@ -393,20 +452,23 @@ function qualid_write_rtp_conf() {
         return; // TURN not provisioned yet -- skip
     }
 
+    // Ensure the UDP-over-TCP tunnel is running before configuring STUN/TURN
+    qualid_setup_stun_tunnel();
+
     // Ephemeral TURN credentials (24h TTL)
     $expiry   = time() + 86400;
     $username = $expiry . ':qualid_asterisk';
     $password = base64_encode(hash_hmac('sha1', $username, $turn_secret, true));
 
-    // Use the VPS IP directly for STUN/TURN addresses to avoid DNS resolution
-    // issues inside Asterisk (Egyptian ISP DNS may block .xyz TLD).
-    $turn_ip = QUALID_CLOUD_IP;
+    // Point to the local socat tunnel endpoint (UDP:3479 → TCP:VPS:80 → coturn)
+    // instead of the VPS IP directly, because all outbound UDP is blocked.
+    $stun_turn_addr = '127.0.0.1:3479';
 
     $turn_block = <<<CONF
 ; -- qualid-turn-start --
 icesupport=yes
-stunaddr={$turn_ip}:443
-turnaddr={$turn_ip}:443
+stunaddr={$stun_turn_addr}
+turnaddr={$stun_turn_addr}
 turnusername={$username}
 turnpassword={$password}
 ; -- qualid-turn-end --
