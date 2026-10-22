@@ -39,7 +39,7 @@ define('QUALID_TIMEOUT',    8);
 $agi_vars = [];
 while (true) {
     $line = fgets(STDIN);
-    if ($line === "\n" || $line === false) break;
+    if (rtrim($line, "\r\n") === '' || $line === false) break;
     $line = trim($line);
     if (preg_match('/^agi_(\w+):\s*(.*)$/', $line, $m)) {
         $agi_vars[$m[1]] = $m[2];

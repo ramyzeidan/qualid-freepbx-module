@@ -6,6 +6,23 @@
 
 if (!defined('FREEPBX_IS_AUTH')) { die('No direct script access allowed'); }
 
+/**
+ * Format a stored "Y-m-d H:i:s" timestamp as a human-friendly string.
+ * Examples: "Today at 4:04 PM", "Yesterday at 11:30 AM", "22 Oct at 9:15 AM"
+ */
+function qualid_format_ts($ts) {
+    if (empty($ts)) { return ''; }
+    $t     = strtotime($ts);
+    if ($t === false) { return htmlspecialchars($ts); }
+    $today = strtotime('today');
+    $yest  = strtotime('yesterday');
+    $time  = date('g:i A', $t);
+    if ($t >= $today)       { return 'Today at '     . $time; }
+    if ($t >= $yest)        { return 'Yesterday at ' . $time; }
+    if (date('Y', $t) === date('Y')) { return date('j M', $t) . ' at ' . $time; }
+    return date('j M Y', $t) . ' at ' . $time;
+}
+
 // Ensure the FreePBX asset symlink exists.
 // FreePBX rewrites 'modules/qualid_remote/assets' → '/admin/assets/qualid_remote'
 // and serves files from that symlink. On a fresh install the symlink may be
@@ -459,15 +476,15 @@ $_module_ver   = $_xml ? 'v' . trim((string) $_xml->version) : 'v?';
                     </div>
                     <div class="qualid-info-item">
                         <label>Connected At</label>
-                        <span style="font-size:11px;"><?= htmlspecialchars($cfg['connected_at']) ?></span>
+                        <span><?= qualid_format_ts($cfg['connected_at']) ?></span>
                     </div>
                     <div class="qualid-info-item">
                         <label>Last Apply Config</label>
                         <?php
                             $_last_ac = qualid_get('last_apply_config_at', '');
                         ?>
-                        <span style="font-size:11px;<?= $_last_ac ? '' : 'color:#c0a020;' ?>">
-                            <?= $_last_ac ? htmlspecialchars($_last_ac) : 'Not yet triggered — click Apply Config' ?>
+                        <span<?= $_last_ac ? '' : ' style="color:#c0a020;"' ?>>
+                            <?= $_last_ac ? qualid_format_ts($_last_ac) : 'Not yet triggered &mdash; click Apply Config' ?>
                         </span>
                     </div>
                 </div>
