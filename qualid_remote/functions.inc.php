@@ -464,10 +464,14 @@ function qualid_write_rtp_conf() {
     // instead of the VPS IP directly, because all outbound UDP is blocked.
     $stun_turn_addr = '127.0.0.1:3479';
 
+    // No stunaddr — we don't need server-reflexive (srflx) candidates because
+    // ALL outbound UDP from FreePBX is blocked by the ISP. srflx candidates
+    // would never work.  Removing stunaddr eliminates the full STUN gathering
+    // phase (up to 1.6s of retransmission timeouts per interface) and speeds
+    // up call setup significantly. Only TURN relay candidates are useful here.
     $turn_block = <<<CONF
 ; -- qualid-turn-start --
 icesupport=yes
-stunaddr={$stun_turn_addr}
 turnaddr={$stun_turn_addr}
 turnusername={$username}
 turnpassword={$password}
