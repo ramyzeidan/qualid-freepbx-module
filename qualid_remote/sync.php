@@ -36,3 +36,4 @@ qualid_sync_extensions($token);
 qualid_sync_queues($token);
 qualid_sync_cdr_to_qualid($token);
 qualid_send_heartbeat($token);
+qualid_sync_outbound($token); // Dispatch pending outbound campaign calls

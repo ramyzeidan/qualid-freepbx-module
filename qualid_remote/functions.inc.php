@@ -20,6 +20,8 @@ define('QUALID_CONTEXT',       'qualid-remote-agents');
 define('QUALID_IVR_CONF',      '/etc/asterisk/qualid_ivr.conf');
 define('QUALID_AGI_BIN',       '/var/lib/asterisk/agi-bin/qualid_ivr.php');
 define('QUALID_AGI_SRC',       dirname(__FILE__) . '/agi/qualid_ivr.php');
+define('QUALID_OB_AGI_BIN',    '/var/lib/asterisk/agi-bin/qualid_outbound_ivr.php');
+define('QUALID_OB_AGI_SRC',    dirname(__FILE__) . '/agi/qualid_outbound_ivr.php');
 define('QUALID_GITHUB_REPO',   'ramyzeidan/qualid-freepbx-module');
 define('QUALID_MODULE_DIR',    dirname(__FILE__));
 
@@ -653,16 +655,21 @@ function qualid_write_agi_files($agi_secret) {
           . "agi_secret=" . $agi_secret . "\n";
     file_put_contents(QUALID_IVR_CONF, $conf);
 
-    // 2. Copy the AGI script from the module to agi-bin
-    if (file_exists(QUALID_AGI_SRC)) {
-        $agi_dir = dirname(QUALID_AGI_BIN);
-        if (!is_dir($agi_dir)) {
-            @mkdir($agi_dir, 0755, true);
+    // 2. Copy AGI scripts from the module's agi/ directory to agi-bin
+    $agi_dir = dirname(QUALID_AGI_BIN);
+    if (!is_dir($agi_dir)) {
+        @mkdir($agi_dir, 0755, true);
+    }
+    foreach ([
+        QUALID_AGI_SRC    => QUALID_AGI_BIN,
+        QUALID_OB_AGI_SRC => QUALID_OB_AGI_BIN,
+    ] as $src => $bin) {
+        if (file_exists($src)) {
+            copy($src, $bin);
+            chmod($bin, 0755);
+            @chown($bin, 'asterisk');
+            @chgrp($bin, 'asterisk');
         }
-        copy(QUALID_AGI_SRC, QUALID_AGI_BIN);
-        chmod(QUALID_AGI_BIN, 0755);
-        @chown(QUALID_AGI_BIN, 'asterisk');
-        @chgrp(QUALID_AGI_BIN, 'asterisk');
     }
 }
 
@@ -671,7 +678,7 @@ function qualid_write_agi_files($agi_secret) {
  * Called on disconnect and uninstall.
  */
 function qualid_remove_agi_files() {
-    foreach ([QUALID_IVR_CONF, QUALID_AGI_BIN] as $f) {
+    foreach ([QUALID_IVR_CONF, QUALID_AGI_BIN, QUALID_OB_AGI_BIN] as $f) {
         if (file_exists($f)) {
             unlink($f);
         }
@@ -1569,4 +1576,100 @@ function qualid_do_github_update() {
 
     needreload();
     return ['success' => true, 'new_version' => $new_ver];
+}
+
+// =============================================================================
+// Outbound Dialer Sync
+// =============================================================================
+
+/**
+ * Poll the API for pending outbound calls and write Asterisk call files.
+ *
+ * Called from sync.php every 5 minutes (same cron as everything else).
+ *
+ * API: GET /outbound/pending  (Bearer token auth)
+ * Returns: { success: true, calls: [ { contact_id, campaign_id, phone_number,
+ *                                       trunk, caller_id, wait_time }, ... ] }
+ *
+ * For each call a .call file is written to /var/spool/asterisk/outgoing/
+ * using the atomic write-to-tmp-then-rename pattern so Asterisk never reads
+ * a partially-written file.
+ *
+ * Retry logic lives entirely in the API (OutboundController::pendingCalls).
+ * MaxRetries in the call file is always 0 — if a call fails to connect,
+ * the contact goes back to 'pending' at the next poll cycle.
+ *
+ * @param string $token  Bearer token stored in config.json
+ * @return array{ success: bool, dispatched: int }
+ */
+function qualid_sync_outbound($token) {
+    $result = qualid_curl_get(
+        QUALID_MAIN_API . '/outbound/pending',
+        ['Authorization: Bearer ' . $token]
+    );
+
+    if (!isset($result['success']) || !$result['success']) {
+        return ['success' => false, 'dispatched' => 0, '_error' => json_encode($result)];
+    }
+
+    $calls      = $result['calls'] ?? [];
+    $dispatched = 0;
+    $spool_dir  = '/var/spool/asterisk/outgoing';
+    $tmp_dir    = '/var/spool/asterisk/tmp';
+
+    // Make sure the tmp dir exists (it normally does on FreePBX)
+    if (!is_dir($tmp_dir)) {
+        @mkdir($tmp_dir, 0770, true);
+    }
+
+    foreach ($calls as $call) {
+        $contact_id  = (int)  ($call['contact_id']   ?? 0);
+        $campaign_id = (int)  ($call['campaign_id']   ?? 0);
+        $phone       = trim((string) ($call['phone_number'] ?? ''));
+        $trunk       = trim((string) ($call['trunk']        ?? 'WE-Landline-FXO'));
+        $caller_id   = trim((string) ($call['caller_id']    ?? ''));
+        $wait_time   = (int)  ($call['wait_time']     ?? 30);
+
+        if (!$contact_id || !$campaign_id || !$phone) continue;
+
+        // Channel: PJSIP/<destination>@<trunk_endpoint>
+        $channel = 'PJSIP/' . $phone . '@' . $trunk;
+
+        // Caller ID line (optional — leave blank to use trunk default)
+        $callerid_line = $caller_id
+            ? 'Callerid: Outbound <' . $caller_id . '>'
+            : '';
+
+        $call_file_content = implode("\n", array_filter([
+            'Channel: '     . $channel,
+            'MaxRetries: 0',
+            'RetryTime: 60',
+            'WaitTime: '    . $wait_time,
+            'Context: qualid-outbound-ivr',
+            'Extension: s',
+            'Priority: 1',
+            $callerid_line,
+            'Setvar: CONTACT_ID='  . $contact_id,
+            'Setvar: CAMPAIGN_ID=' . $campaign_id,
+            'Setvar: CALLED_NUM='  . $phone,
+            '',   // trailing newline
+        ]));
+
+        // Write atomically: tmp file → rename into outgoing/
+        $tmp_file  = $tmp_dir  . '/qualid_ob_' . $contact_id . '_' . time() . '.call';
+        $dest_file = $spool_dir . '/qualid_ob_' . $contact_id . '_' . time() . '.call';
+
+        if (file_put_contents($tmp_file, $call_file_content) === false) continue;
+        // Ensure asterisk user owns/can read it
+        @chmod($tmp_file, 0660);
+
+        if (!rename($tmp_file, $dest_file)) {
+            @unlink($tmp_file);
+            continue;
+        }
+
+        $dispatched++;
+    }
+
+    return ['success' => true, 'dispatched' => $dispatched];
 }
