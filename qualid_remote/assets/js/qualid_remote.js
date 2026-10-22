@@ -513,27 +513,34 @@ var QualidRemote = (function ($) {
         // Update button click
         $(document).on('click', '#qualid-do-update-btn', function () {
             var $btn = $(this);
-            if (!confirm('Update Quali-D Connect to the latest version from GitHub?\n\nThe page will reload after the update.')) return;
+            var $label = $('#qualid-update-label');
+            if (!confirm('Update Quali-D Connect to the latest version?\n\nFiles will be updated, configs regenerated, and Apply Config will run automatically. The page will reload when done.')) return;
+
             $btn.prop('disabled', true);
-            $('#qualid-update-label').text('Updating...');
+            $label.html('<span class="qualid-spinner"></span> Downloading\u2026');
+
             $.ajax({
                 url:      BASE_URL,
                 method:   'POST',
                 data:     { ajax_action: 'do_update' },
                 dataType: 'json',
+                timeout:  180000,   // 3 min — download + fwconsole reload can be slow
             }).done(function (res) {
                 if (res.success) {
-                    $('#qualid-update-label').text('Done! Reloading...');
-                    setTimeout(function () { location.reload(); }, 1500);
+                    var verStr = res.new_version ? ' v' + res.new_version : '';
+                    $label.html('<i class="fa fa-check"></i> Updated' + escHtml(verStr) + '! Reloading\u2026');
+                    $btn.css('background', 'rgba(34,197,94,0.15)').css('border-color', '#22c55e');
+                    setTimeout(function () { location.reload(); }, 2200);
                 } else {
                     alert('Update failed: ' + (res.error || 'Unknown error'));
-                    $btn.prop('disabled', false);
-                    $('#qualid-update-label').text('Update available');
+                    $btn.prop('disabled', false).css('background', '').css('border-color', '');
+                    $label.text('Update available');
                 }
-            }).fail(function () {
-                alert('Update request failed. Check server logs.');
+            }).fail(function (xhr) {
+                var msg = xhr.status === 0 ? 'Request timed out or was interrupted.' : 'HTTP ' + xhr.status;
+                alert('Update failed \u2014 ' + msg + '\nCheck Admin \u2192 Module Admin to complete manually if needed.');
                 $btn.prop('disabled', false);
-                $('#qualid-update-label').text('Update available');
+                $label.text('Update available');
             });
         });
     }

@@ -1499,6 +1499,38 @@ function qualid_do_github_update() {
         return ['success' => false, 'error' => 'Extraction produced no files'];
     }
 
+    // -- Step 3: run the new install.php so configs are regenerated -----------
+    // FREEPBX_IS_AUTH is already defined (we're in the FreePBX web context).
+    // Wrap in output buffering so any out() calls don't corrupt the JSON response.
+    $install_php = QUALID_MODULE_DIR . '/install.php';
+    if (file_exists($install_php)) {
+        ob_start();
+        @include $install_php;
+        ob_end_clean();
+    }
+
+    // -- Step 4: update FreePBX's module registry -----------------------------
+    // Without this, Module Admin keeps showing "upgrade available" even though
+    // the files are already updated, forcing the user to click Upgrade → Process.
+    $new_xml = @simplexml_load_file(QUALID_MODULE_DIR . '/module.xml');
+    $new_ver = $new_xml ? trim((string) $new_xml->version) : '';
+    if ($new_ver) {
+        try {
+            $fpbx = FreePBX::Create();
+            $fpbx->Database->query(
+                "UPDATE modules SET version = :ver, status = 'enabled' WHERE modulename = 'qualid_remote'",
+                [':ver' => $new_ver]
+            );
+        } catch (Exception $e) {
+            // Non-fatal — module works fine; Module Admin may show stale version.
+        }
+    }
+
+    // -- Step 5: trigger Apply Config in the background -----------------------
+    // Runs async so the AJAX response returns immediately.  Uses sudo because
+    // fwconsole needs elevated privileges (standard FreePBX sudoers allow this).
+    @exec('sudo fwconsole reload --quiet > /dev/null 2>&1 &');
+
     needreload();
-    return ['success' => true];
+    return ['success' => true, 'new_version' => $new_ver];
 }
