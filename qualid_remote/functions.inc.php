@@ -372,57 +372,43 @@ CONF;
 }
 
 /**
- * Set up a socat UDP-over-TCP tunnel so Asterisk's STUN/TURN traffic can reach
- * the coturn server on the VPS even when the ISP blocks ALL outbound UDP.
+ * Ensure a socat UDP-over-TCP tunnel is running so Asterisk's STUN/TURN
+ * traffic can reach the coturn server on the VPS even when the ISP blocks
+ * ALL outbound UDP.
  *
  * Tunnel chain:
  *   Asterisk → UDP:127.0.0.1:3479 → socat(FreePBX) → TCP:VPS:80 → socat(VPS) → UDP:coturn:3478
  *
- * Creates a systemd service "qualid-stun-tunnel" that auto-starts on boot
- * and restarts on failure. Idempotent — only writes/restarts when config changes.
+ * Uses a simple background process checked via pgrep — no systemd required
+ * (avoids permission issues when PHP runs as the asterisk user).
+ * The cron job (sync.php, every 5 min) keeps it alive if it dies.
+ * Also writes a @reboot cron entry so the tunnel starts on boot.
  */
 function qualid_setup_stun_tunnel() {
     if (!file_exists('/usr/bin/socat')) {
-        exec('apt-get install -y socat 2>/dev/null');
-        if (!file_exists('/usr/bin/socat')) {
-            return false;
-        }
+        return false;
     }
 
-    $cloud_ip     = QUALID_CLOUD_IP;
-    $service_file = '/etc/systemd/system/qualid-stun-tunnel.service';
+    $cloud_ip = QUALID_CLOUD_IP;
 
-    $service = <<<SERVICE
-[Unit]
-Description=Quali-D STUN/TURN UDP-over-TCP tunnel
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-SERVICE;
-
-    // Only rewrite + restart when content changes
-    $current = @file_get_contents($service_file);
-    if ($current === $service) {
-        // Already correct — just ensure it's running
-        exec('systemctl is-active qualid-stun-tunnel 2>/dev/null', $out, $rc);
-        if ($rc !== 0) {
-            exec('systemctl start qualid-stun-tunnel 2>/dev/null');
-        }
-        return true;
+    // Check if socat tunnel is already running on port 3479
+    exec('pgrep -f "socat.*UDP4-LISTEN:3479" 2>/dev/null', $pids);
+    if (!empty($pids)) {
+        return true; // already running
     }
 
-    file_put_contents($service_file, $service);
-    exec('systemctl daemon-reload 2>/dev/null');
-    exec('systemctl enable qualid-stun-tunnel 2>/dev/null');
-    exec('systemctl restart qualid-stun-tunnel 2>/dev/null');
+    // Start socat as a background process
+    exec("nohup /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &");
+
+    // Write a @reboot cron entry so the tunnel auto-starts after a reboot
+    $cron_file = '/etc/cron.d/qualid_stun_tunnel';
+    $cron_line = "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
+    $current   = @file_get_contents($cron_file);
+    if ($current !== $cron_line) {
+        @file_put_contents($cron_file, $cron_line);
+        @chmod($cron_file, 0644);
+    }
+
     return true;
 }
 
@@ -433,8 +419,6 @@ SERVICE;
  * NOTE: rtp_custom.conf is broken in FreePBX 17 / Asterisk 22 (the #include
  * is present in rtp.conf but the file contents are silently ignored). Writing
  * to rtp_additional.conf works because it's the first #include in rtp.conf.
- * FreePBX regenerates rtp_additional.conf on every Apply Config, but our
- * get_config() hook runs AFTER that regeneration, so the append persists.
  *
  * STUN/TURN addresses point to 127.0.0.1:3479 — the local socat tunnel
  * endpoint. The tunnel converts UDP→TCP so it works even when the ISP blocks
@@ -484,8 +468,10 @@ CONF;
         return; // rtp_additional.conf doesn't exist yet
     }
 
-    // Remove any existing qualid TURN block
+    // Remove any existing qualid TURN block AND any leftover stunaddr/turnaddr
+    // lines from earlier module versions that wrote without markers
     $content = preg_replace('/; -- qualid-turn-start --.*?; -- qualid-turn-end --\n?/s', '', $content);
+    $content = preg_replace('/^(stunaddr|turnaddr|turnusername|turnpassword)=.*\n?/m', '', $content);
 
     // Append the TURN block
     $content = rtrim($content) . "\n" . $turn_block . "\n";
@@ -1111,7 +1097,14 @@ function qualid_remote_get_config() {
     if (!empty($cfg['trunk_user']) && !empty($cfg['trunk_pass'])) {
         qualid_write_pjsip($cfg);
         qualid_write_dialplan($cfg);
-        qualid_write_rtp_conf();
+
+        // Defer the RTP config write: FreePBX regenerates rtp_additional.conf
+        // during Apply Config, and our hook may run BEFORE that regeneration
+        // completes — wiping our TURN block.  By deferring 3 seconds, we
+        // ensure rtp_additional.conf has been fully regenerated first.
+        $php   = PHP_BINARY ?: '/usr/bin/php';
+        $funcs = dirname(__FILE__) . '/functions.inc.php';
+        exec("(sleep 3 && {$php} -r \"define('FREEPBX_IS_AUTH',1); require '{$funcs}'; qualid_write_rtp_conf();\") > /dev/null 2>&1 &");
     }
 
     qualid_push_pbx_host($token);
