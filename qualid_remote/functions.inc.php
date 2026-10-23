@@ -1207,13 +1207,19 @@ function qualid_write_cron() {
     $php_bin     = PHP_BINARY ?: '/usr/bin/php';
     $cron_file   = '/etc/cron.d/qualid_remote';
     $cloud_ip    = QUALID_CLOUD_IP;
-    $content     = "# Quali-D Connect — automatic sync & RTP watchdog\n"
+    // ASCII-only comment: cron silently rejects /etc/cron.d/ files that contain
+    // non-ASCII characters (e.g. Unicode em-dashes) on many Debian installations.
+    $content     = "# Quali-D Connect - automatic sync and RTP watchdog\n"
+                 . "SHELL=/bin/sh\n"
+                 . "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n"
                  . "* * * * * root {$php_bin} {$sync_script} > /dev/null 2>&1\n"
                  . "* * * * * root {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
                  . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
 
     @file_put_contents($cron_file, $content);
     @chmod($cron_file, 0644);
+    // Signal cron to re-read /etc/cron.d/ immediately
+    @exec('systemctl reload cron 2>/dev/null || service cron reload 2>/dev/null || true');
 }
 
 /**
