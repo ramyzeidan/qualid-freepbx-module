@@ -37,4 +37,4 @@ qualid_sync_queues($token);
 qualid_sync_cdr_to_qualid($token);
 qualid_send_heartbeat($token);
 qualid_sync_outbound($token); // Dispatch pending outbound campaign calls
-// Trunks are synced on connect and on Apply Config — not every minute.
+qualid_sync_trunks($token);   // Push trunk list for campaign dropdown
