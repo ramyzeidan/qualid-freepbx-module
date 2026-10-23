@@ -316,11 +316,17 @@ function qualid_write_outbound_dialplan() {
     $conf = <<<'DIALPLAN'
 ; QUALI-D Outbound IVR - auto-generated. Do not edit manually.
 [qualid-outbound-ivr]
+; AMD() waits for actual voice on the line instead of relying on static timing.
+; FXO gateways send 200 OK on PSTN polarity reversal (before customer picks up).
+; AMD listens for speech ("hello") before starting the IVR flow.
+; Also detects and skips answering machines.
 exten => s,1,NoOp(Outbound IVR - contact=${CONTACT_ID} campaign=${CAMPAIGN_ID})
  same =>  n,Answer()
- same =>  n,Wait(5)
+ same =>  n,AMD(30000,1500,500,60000,100,256,3,0)
+ same =>  n,GotoIf($["${AMDSTATUS}" = "MACHINE"]?end,1)
  same =>  n,AGI(qualid_outbound_ivr.php,${CONTACT_ID},${CAMPAIGN_ID})
  same =>  n,Hangup()
+exten => end,1,Hangup()
 DIALPLAN;
 
     $path = '/etc/asterisk/extensions_qualid_outbound.conf';
