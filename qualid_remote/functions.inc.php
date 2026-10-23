@@ -299,8 +299,36 @@ function qualid_provision_trunk($token) {
 function qualid_write_asterisk_config($config) {
     qualid_write_pjsip($config);
     qualid_write_dialplan($config);
+    qualid_write_outbound_dialplan();
     qualid_write_rtp_conf();
     needreload();
+}
+
+/**
+ * Write the [qualid-outbound-ivr] Asterisk dialplan context used by outbound
+ * campaign call files.  Writes to extensions_qualid_outbound.conf and ensures
+ * it is #include'd in extensions_custom.conf.  Safe to call multiple times.
+ *
+ * Wait(3) gives the called party time to put the phone to their ear before
+ * the IVR audio begins.
+ */
+function qualid_write_outbound_dialplan() {
+    $conf = <<<'DIALPLAN'
+; QUALI-D Outbound IVR — auto-generated. Do not edit manually.
+[qualid-outbound-ivr]
+exten => s,1,NoOp(Outbound IVR — contact=${CONTACT_ID} campaign=${CAMPAIGN_ID})
+ same =>  n,Answer()
+ same =>  n,Wait(3)
+ same =>  n,AGI(qualid_outbound_ivr.php,${CONTACT_ID},${CAMPAIGN_ID})
+ same =>  n,Hangup()
+DIALPLAN;
+
+    $path = '/etc/asterisk/extensions_qualid_outbound.conf';
+    file_put_contents($path, $conf . "\n");
+    qualid_ensure_include('/etc/asterisk/extensions_custom.conf', 'extensions_qualid_outbound.conf');
+
+    // Reload dialplan live so the context is available immediately
+    @exec('asterisk -rx "dialplan reload" > /dev/null 2>&1');
 }
 
 function qualid_write_pjsip($cfg) {
