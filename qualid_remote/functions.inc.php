@@ -1678,74 +1678,112 @@ function qualid_sync_outbound($token) {
  * Read all configured trunks from FreePBX and push them to the QUALI-D API
  * so the outbound campaign form can offer a dropdown instead of a free-text field.
  *
- * Strategy (tries in order, stops at first non-empty result):
- *   1. FreePBX 'trunks' table  — works for DAHDI, legacy SIP, and most PJSIP setups
- *   2. FreePBX 'pjsip' table   — fallback for PJSIP-only installs where the trunks
- *                                 table may be absent or empty
- *
- * The 'name' field returned is the Asterisk endpoint/peer ID as used in:
- *   PJSIP/<number>@<name>   (PJSIP)
- *   SIP/<number>@<name>     (legacy SIP)
+ * Tries four strategies in order, stopping at the first non-empty result:
+ *   1. Parse /etc/asterisk/pjsip_additional.conf  — most reliable; FreePBX
+ *      regenerates it on every Apply Config. Filters out extension sections
+ *      (context=from-internal) and purely numeric section names.
+ *   2. asterisk -rx "pjsip show endpoints"         — live CLI; catches endpoints
+ *      that exist in Asterisk but are not in the DB yet.
+ *   3. FreePBX pjsip DB table with context filter  — modern PJSIP-only installs.
+ *   4. FreePBX trunks DB table                     — legacy SIP / DAHDI / any
+ *      trunk configured through the FreePBX Trunks UI.
  *
  * @param string $token  Bearer token from config.json
- * @return array{ success: bool, synced: int }
+ * @return array
  */
 function qualid_sync_trunks($token) {
-    try {
-        $pdo = FreePBX::create()->Database;
-    } catch (Exception $e) {
-        return ['success' => false, 'error' => 'FreePBX DB unavailable: ' . $e->getMessage()];
-    }
-
     $trunks = [];
+    $tried  = [];
 
-    // ── Strategy 1: trunks table ─────────────────────────────────────────────
-    try {
-        $stmt = $pdo->query(
-            "SELECT name, tech, peerid, disabled FROM trunks WHERE disabled = 0 ORDER BY name"
-        );
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            // 'peerid' is the actual Asterisk endpoint ID for PJSIP/SIP;
-            // fall back to 'name' when peerid is not set.
-            $endpoint = !empty($row['peerid']) ? $row['peerid'] : $row['name'];
-            $tech     = strtolower(trim($row['tech']));
-            // Normalise legacy 'sip' entries that are actually pjsip underneath
-            if (!in_array($tech, ['pjsip','sip','iax2','dahdi'])) $tech = 'pjsip';
-            $trunks[] = [
-                'name'         => $endpoint,
-                'display_name' => $row['name'],
-                'tech'         => $tech,
-            ];
+    // ── Strategy 1: parse /etc/asterisk/pjsip_additional.conf ────────────────
+    // FreePBX regenerates this file on every "Apply Config".
+    // Trunk endpoint sections have context != from-internal (extensions do).
+    $tried[] = 'pjsip_additional.conf';
+    $pjsip_conf = '/etc/asterisk/pjsip_additional.conf';
+    if (file_exists($pjsip_conf)) {
+        $raw = @file_get_contents($pjsip_conf);
+        if ($raw !== false) {
+            // Split into INI sections — each starts with [section-name]
+            $sections = preg_split('/^(?=\[)/m', $raw, -1, PREG_SPLIT_NO_EMPTY);
+            foreach ($sections as $block) {
+                if (!preg_match('/^\[([^\]]+)\]/', $block, $nm)) continue;
+                $name = trim($nm[1]);
+                // Must be a type=endpoint section
+                if (!preg_match('/^\s*type\s*=\s*endpoint\s*$/m', $block)) continue;
+                // Skip extension sections (context=from-internal)
+                if (preg_match('/^\s*context\s*=\s*from-internal\s*$/m', $block)) continue;
+                // Skip purely numeric names (extension numbers)
+                if (preg_match('/^\d+$/', $name)) continue;
+                // Skip registration/auth helper sections
+                if (preg_match('/-reg(istration)?$|-auth$/i', $name)) continue;
+                $trunks[] = ['name' => $name, 'display_name' => $name, 'tech' => 'pjsip'];
+            }
         }
-    } catch (Exception $e) {
-        // trunks table absent or schema differs — fall through to strategy 2
     }
 
-    // ── Strategy 2: pjsip table (modern FreePBX PJSIP-only installs) ─────────
+    // ── Strategy 2: asterisk -rx "pjsip show endpoints" ──────────────────────
     if (empty($trunks)) {
+        $tried[] = 'asterisk_cli';
+        $lines = [];
+        @exec('asterisk -rx "pjsip show endpoints" 2>/dev/null', $lines);
+        foreach ($lines as $line) {
+            // Output format: "  Endpoint:  <name>/<number>  <status>"
+            if (!preg_match('/^\s+Endpoint:\s+(\S+?)(?:\/\S+)?\s/', $line, $m)) continue;
+            $ep = $m[1];
+            if (preg_match('/^\d+$/', $ep)) continue;
+            if (preg_match('/-reg(istration)?$|-auth$/i', $ep)) continue;
+            $trunks[] = ['name' => $ep, 'display_name' => $ep, 'tech' => 'pjsip'];
+        }
+    }
+
+    // ── Strategy 3: FreePBX pjsip DB table with context filter ───────────────
+    if (empty($trunks)) {
+        $tried[] = 'pjsip_db';
         try {
-            // Endpoints whose category (section name) is NOT purely numeric are trunks.
-            // Extensions are always numeric in FreePBX; trunk endpoint names are descriptive.
+            $pdo = FreePBX::create()->Database;
             $stmt = $pdo->query(
-                "SELECT DISTINCT category FROM pjsip
-                 WHERE keyword = 'type' AND value = 'endpoint'
-                   AND category NOT REGEXP '^[0-9]+$'
-                 ORDER BY category"
+                "SELECT DISTINCT e.category FROM pjsip e
+                 WHERE e.keyword = 'type' AND e.value = 'endpoint'
+                   AND e.category NOT REGEXP '^[0-9]+$'
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pjsip c
+                       WHERE c.category = e.category
+                         AND c.keyword = 'context'
+                         AND c.value = 'from-internal'
+                   )
+                 ORDER BY e.category"
             );
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $cat = $row['category'];
+                if (preg_match('/-reg(istration)?$|-auth$/i', $cat)) continue;
+                $trunks[] = ['name' => $cat, 'display_name' => $cat, 'tech' => 'pjsip'];
+            }
+        } catch (Exception $e) { /* table absent or schema differs */ }
+    }
+
+    // ── Strategy 4: FreePBX trunks DB table ──────────────────────────────────
+    if (empty($trunks)) {
+        $tried[] = 'trunks_db';
+        try {
+            $pdo = FreePBX::create()->Database;
+            $stmt = $pdo->query(
+                "SELECT name, tech, peerid FROM trunks WHERE disabled = 0 ORDER BY name"
+            );
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $endpoint = !empty($row['peerid']) ? $row['peerid'] : $row['name'];
+                $tech     = strtolower(trim($row['tech'] ?: 'pjsip'));
+                if (!in_array($tech, ['pjsip','sip','iax2','dahdi'])) $tech = 'pjsip';
                 $trunks[] = [
-                    'name'         => $row['category'],
-                    'display_name' => $row['category'],
-                    'tech'         => 'pjsip',
+                    'name'         => $endpoint,
+                    'display_name' => $row['name'],
+                    'tech'         => $tech,
                 ];
             }
-        } catch (Exception $e) {
-            // pjsip table absent — nothing more we can try
-        }
+        } catch (Exception $e) { /* trunks table absent */ }
     }
 
     if (empty($trunks)) {
-        return ['success' => true, 'synced' => 0, 'message' => 'No trunks found'];
+        return ['success' => false, 'tried' => $tried, 'error' => 'No trunks found via any strategy'];
     }
 
     $result = qualid_curl_post(
@@ -1754,5 +1792,8 @@ function qualid_sync_trunks($token) {
         ['Authorization: Bearer ' . $token]
     );
 
-    return is_array($result) ? $result : ['success' => false, 'error' => 'API error'];
+    if (!is_array($result)) {
+        return ['success' => false, 'tried' => $tried, 'error' => 'API call failed'];
+    }
+    return array_merge($result, ['tried' => $tried, 'found' => count($trunks)]);
 }
