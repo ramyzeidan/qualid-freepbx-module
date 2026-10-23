@@ -59,19 +59,22 @@ class Qualid_remote extends \FreePBX_Helpers implements \BMO {
             return;
         }
 
-        try {
-            qualid_push_pbx_host($token);
-            qualid_sync_extensions($token);
-            qualid_sync_cdr_to_qualid($token);
-            qualid_send_heartbeat($token);
-            qualid_sync_trunks($token);
-        } catch (\Throwable $e) {
-            // Log silently so FreePBX reload is never broken by our code
-            @file_put_contents(
-                __DIR__ . '/generate_config_error.log',
-                date('Y-m-d H:i:s') . ' ' . $e->getMessage() . "\n",
-                FILE_APPEND
-            );
+        // Each call is isolated — one failure must not prevent the others from running.
+        $calls = [
+            'push_pbx_host'    => fn() => qualid_push_pbx_host($token),
+            'sync_extensions'  => fn() => qualid_sync_extensions($token),
+            'sync_cdr'         => fn() => qualid_sync_cdr_to_qualid($token),
+            'send_heartbeat'   => fn() => qualid_send_heartbeat($token),
+            'sync_trunks'      => fn() => qualid_sync_trunks($token),
+        ];
+        foreach ($calls as $name => $fn) {
+            try {
+                $fn();
+            } catch (\Throwable $e) {
+                // Use error_log so it always reaches the PHP/Apache error log
+                // regardless of file-system permissions on the module directory.
+                error_log('Quali-D genConfig [' . $name . ']: ' . $e->getMessage());
+            }
         }
     }
 }
