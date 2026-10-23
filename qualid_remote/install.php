@@ -36,7 +36,8 @@ if (file_exists($cfg_path)) {
         qualid_push_pbx_host($cfg['token']);
         qualid_sync_extensions($cfg['token']);
         qualid_sync_cdr_to_qualid($cfg['token']);
-        out('Quali-D Connect: extensions and CDR synced with QUALI-D cloud.');
+        qualid_sync_trunks($cfg['token']);
+        out('Quali-D Connect: extensions, CDR, and trunks synced with QUALI-D cloud.');
     }
 }
 
