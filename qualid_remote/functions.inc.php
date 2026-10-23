@@ -1422,16 +1422,21 @@ function qualid_run_diagnostics() {
     ];
 
     // 8. Cron watchdog configured
+    // sync.php and deferred_rtp.php run from the asterisk user's crontab.
+    // /etc/cron.d/qualid_remote is used only for the @reboot socat tunnel.
+    $ast_crontab       = @shell_exec('crontab -u asterisk -l 2>/dev/null') ?: '';
+    $cron_has_sync     = strpos($ast_crontab, 'sync.php') !== false
+                         && strpos($ast_crontab, 'qualid_remote') !== false;
+    $cron_has_watchdog = strpos($ast_crontab, 'deferred_rtp.php') !== false
+                         && strpos($ast_crontab, 'qualid_remote') !== false;
     $cron_file         = '/etc/cron.d/qualid_remote';
     $cron_content      = @file_get_contents($cron_file);
-    $cron_present      = ($cron_content !== false);
-    $cron_has_watchdog = $cron_present && strpos($cron_content, 'deferred_rtp.php') !== false;
-    $cron_has_reboot   = $cron_present && strpos($cron_content, '@reboot') !== false;
-    $cron_ok           = $cron_has_watchdog;
+    $cron_has_reboot   = ($cron_content !== false) && strpos($cron_content, '@reboot') !== false;
+    $cron_ok           = $cron_has_sync && $cron_has_watchdog;
 
-    if (!$cron_present) {
+    if (!$cron_has_sync && !$cron_has_watchdog) {
         $cron_detail = 'Not configured';
-    } elseif (!$cron_has_watchdog) {
+    } elseif (!$cron_ok) {
         $cron_detail = 'Outdated &mdash; automatic recovery entry missing';
     } else {
         $cron_detail = $cron_has_reboot ? 'Active (includes startup recovery)' : 'Active';
