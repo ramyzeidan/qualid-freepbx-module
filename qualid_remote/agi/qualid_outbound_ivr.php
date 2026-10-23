@@ -147,12 +147,12 @@ function ob_post(string $url, array $payload, array $headers): array
 }
 
 /**
- * Download an audio file from $url to a temp WAV file.
- * Returns the full path (with .wav extension) on success, or null on failure.
+ * Download an audio file from $url to a temp MP3 file.
+ * Returns the full path (with .mp3 extension) on success, or null on failure.
  */
 function ob_download_audio(string $url, array $headers): ?string
 {
-    $tmp  = tempnam(sys_get_temp_dir(), 'qualid_ob_') . '.wav';
+    $tmp  = tempnam(sys_get_temp_dir(), 'qualid_ob_') . '.mp3';
     $fh   = fopen($tmp, 'wb');
     if (!$fh) return null;
 
@@ -182,27 +182,61 @@ function ob_download_audio(string $url, array $headers): ?string
 }
 
 /**
- * Download audio from URL, play it via Asterisk Playback, clean up temp file.
+ * Convert an MP3 file to 8kHz mono WAV for Asterisk STREAM FILE.
+ * Returns base path WITHOUT extension (e.g. /tmp/qualid_ob_abc) on success,
+ * or null on failure.
+ * Uses mpg123 (primary — always on Asterisk boxes) or sox (fallback).
+ */
+function ob_convert_to_wav(string $mp3_file): ?string
+{
+    if (!$mp3_file || !file_exists($mp3_file)) return null;
+    $base     = preg_replace('/\.mp3$/', '', $mp3_file);
+    $wav_file = $base . '.wav';
+
+    // Primary: mpg123 (guaranteed present — app_mp3 depends on it)
+    exec(sprintf('mpg123 -q -m -r 8000 -w %s %s 2>/dev/null',
+        escapeshellarg($wav_file), escapeshellarg($mp3_file)), $out, $ret);
+    if ($ret === 0 && file_exists($wav_file) && filesize($wav_file) > 0) {
+        return $base;
+    }
+
+    // Fallback: sox
+    exec(sprintf('sox %s -r 8000 -c 1 -e signed-integer -b 16 %s 2>/dev/null',
+        escapeshellarg($mp3_file), escapeshellarg($wav_file)), $out, $ret);
+    if ($ret === 0 && file_exists($wav_file) && filesize($wav_file) > 0) {
+        return $base;
+    }
+
+    @unlink($wav_file);
+    return null;
+}
+
+/**
+ * Download audio from URL, convert to WAV, play via STREAM FILE, clean up.
  * Returns '' = played OK, 'hangup' = customer hung up, 'skip' = no audio URL.
  */
 function ob_play_url(string $url, array $headers): string
 {
     if (!$url) return 'skip';
 
-    $file = ob_download_audio($url, $headers);
-    if (!$file) {
+    $mp3 = ob_download_audio($url, $headers);
+    if (!$mp3) {
         agi_verbose("[outbound] Warning: could not download audio: $url");
         return 'skip';
     }
 
-    // Asterisk Playback expects the path WITHOUT extension
-    $path_no_ext = preg_replace('/\.wav$/', '', $file);
-    if ($path_no_ext !== $file) rename($file, $path_no_ext . '.wav');
+    $wav_base = ob_convert_to_wav($mp3);
+    @unlink($mp3);
 
-    $resp = agi_cmd('EXEC Playback "' . addslashes($path_no_ext) . '"');
-    @unlink($path_no_ext . '.wav');
+    if (!$wav_base) {
+        agi_verbose("[outbound] Warning: could not convert audio to WAV");
+        return 'skip';
+    }
 
-    // EXEC returns "200 result=-1" on hangup
+    // STREAM FILE returns digit ASCII on barge-in, 0 on completion, -1 on hangup
+    $resp = agi_cmd('STREAM FILE "' . addslashes($wav_base) . '" ""');
+    @unlink($wav_base . '.wav');
+
     return (strpos($resp, 'result=-1') !== false) ? 'hangup' : '';
 }
 
@@ -263,19 +297,16 @@ while ($step_num++ <= $max_steps) {
         $digits = '';
         $hungup = false;
         for ($try = 0; $try < $retries; $try++) {
-            $file        = $url ? ob_download_audio($url, $base_headers) : null;
-            $path_no_ext = '';
-            if ($file) {
-                $path_no_ext = preg_replace('/\.wav$/', '', $file);
-                rename($file, $path_no_ext . '.wav');
-            }
+            $mp3      = $url ? ob_download_audio($url, $base_headers) : null;
+            $wav_base = $mp3 ? ob_convert_to_wav($mp3) : null;
+            if ($mp3) @unlink($mp3);
 
             // GET DATA plays the prompt and waits for a single digit
             $resp = agi_cmd(
-                'GET DATA "' . ($path_no_ext ?: 'silence/1') . '" '
+                'GET DATA "' . ($wav_base ?: 'silence/1') . '" '
                 . ($timeout * 1000) . ' 1'
             );
-            if ($path_no_ext) @unlink($path_no_ext . '.wav');
+            if ($wav_base) @unlink($wav_base . '.wav');
 
             if (strpos($resp, 'result=-1') !== false) { $hungup = true; break; }
             // result=<ASCII code>  e.g. result=49 for '1'
@@ -300,18 +331,15 @@ while ($step_num++ <= $max_steps) {
         $digits = '';
         $hungup = false;
         for ($try = 0; $try < $retries; $try++) {
-            $file        = $url ? ob_download_audio($url, $base_headers) : null;
-            $path_no_ext = '';
-            if ($file) {
-                $path_no_ext = preg_replace('/\.wav$/', '', $file);
-                rename($file, $path_no_ext . '.wav');
-            }
+            $mp3      = $url ? ob_download_audio($url, $base_headers) : null;
+            $wav_base = $mp3 ? ob_convert_to_wav($mp3) : null;
+            if ($mp3) @unlink($mp3);
 
             $resp = agi_cmd(
-                'GET DATA "' . ($path_no_ext ?: 'silence/1') . '" '
+                'GET DATA "' . ($wav_base ?: 'silence/1') . '" '
                 . ($timeout * 1000) . ' ' . $num_digits
             );
-            if ($path_no_ext) @unlink($path_no_ext . '.wav');
+            if ($wav_base) @unlink($wav_base . '.wav');
 
             if (strpos($resp, 'result=-1') !== false) { $hungup = true; break; }
             if (preg_match('/result=(\d+)/', $resp, $m) && (int)$m[1] > 0) {
