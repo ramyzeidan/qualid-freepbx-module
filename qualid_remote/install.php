@@ -30,9 +30,14 @@ if (file_exists($cfg_path)) {
         qualid_write_agi_files($cfg['agi_secret']);
         out('Quali-D Connect: IVR AGI script deployed to /var/lib/asterisk/agi-bin/.');
     }
-    // Always write the outbound dialplan context (idempotent)
-    qualid_write_outbound_dialplan();
-    out('Quali-D Connect: outbound IVR dialplan context written.');
+    // Always write the outbound dialplan context (idempotent).
+    // Guard with function_exists: during a self-update, qualid_do_github_update()
+    // includes this file while the OLD functions.inc.php is still in PHP memory,
+    // so the new function may not be defined yet.
+    if (function_exists('qualid_write_outbound_dialplan')) {
+        qualid_write_outbound_dialplan();
+        out('Quali-D Connect: outbound IVR dialplan context written.');
+    }
     // Upgrade path: immediately sync extensions + CDR so new installs are
     // up-to-date without waiting for Apply Config or a page visit.
     if (is_array($cfg) && !empty($cfg['token'])) {
