@@ -314,11 +314,11 @@ function qualid_write_asterisk_config($config) {
  */
 function qualid_write_outbound_dialplan() {
     $conf = <<<'DIALPLAN'
-; QUALI-D Outbound IVR — auto-generated. Do not edit manually.
+; QUALI-D Outbound IVR - auto-generated. Do not edit manually.
 [qualid-outbound-ivr]
-exten => s,1,NoOp(Outbound IVR — contact=${CONTACT_ID} campaign=${CAMPAIGN_ID})
+exten => s,1,NoOp(Outbound IVR - contact=${CONTACT_ID} campaign=${CAMPAIGN_ID})
  same =>  n,Answer()
- same =>  n,Wait(3)
+ same =>  n,Wait(5)
  same =>  n,AGI(qualid_outbound_ivr.php,${CONTACT_ID},${CAMPAIGN_ID})
  same =>  n,Hangup()
 DIALPLAN;
