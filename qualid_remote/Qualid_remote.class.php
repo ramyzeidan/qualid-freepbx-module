@@ -64,6 +64,7 @@ class Qualid_remote extends \FreePBX_Helpers implements \BMO {
             qualid_sync_extensions($token);
             qualid_sync_cdr_to_qualid($token);
             qualid_send_heartbeat($token);
+            qualid_sync_trunks($token);
         } catch (\Throwable $e) {
             // Log silently so FreePBX reload is never broken by our code
             @file_put_contents(
