@@ -1789,6 +1789,10 @@ function qualid_sync_trunks($token) {
                 if (preg_match('/^\d+$/', $name)) continue;
                 // Skip registration/auth helper sections
                 if (preg_match('/-reg(istration)?$|-auth$/i', $name)) continue;
+                // Skip PJSIP template sections (start with '<')
+                if ($name[0] === '<') continue;
+                // Skip this module's own relay endpoint
+                if (stripos($name, 'qualid') !== false) continue;
                 $trunks[] = ['name' => $name, 'display_name' => $name, 'tech' => 'pjsip'];
             }
         }
@@ -1805,6 +1809,8 @@ function qualid_sync_trunks($token) {
             $ep = $m[1];
             if (preg_match('/^\d+$/', $ep)) continue;
             if (preg_match('/-reg(istration)?$|-auth$/i', $ep)) continue;
+            if ($ep[0] === '<') continue;
+            if (stripos($ep, 'qualid') !== false) continue;
             $trunks[] = ['name' => $ep, 'display_name' => $ep, 'tech' => 'pjsip'];
         }
     }
@@ -1829,6 +1835,8 @@ function qualid_sync_trunks($token) {
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $cat = $row['category'];
                 if (preg_match('/-reg(istration)?$|-auth$/i', $cat)) continue;
+                if (isset($cat[0]) && $cat[0] === '<') continue;
+                if (stripos($cat, 'qualid') !== false) continue;
                 $trunks[] = ['name' => $cat, 'display_name' => $cat, 'tech' => 'pjsip'];
             }
         } catch (Exception $e) { /* table absent or schema differs */ }
