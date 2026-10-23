@@ -1180,8 +1180,8 @@ function qualid_write_cron() {
     $cron_file   = '/etc/cron.d/qualid_remote';
     $cloud_ip    = QUALID_CLOUD_IP;
     $content     = "# Quali-D Connect — automatic sync & RTP watchdog\n"
-                 . "*/5 * * * * asterisk {$php_bin} {$sync_script} > /dev/null 2>&1\n"
-                 . "* * * * * asterisk {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
+                 . "*/5 * * * * root {$php_bin} {$sync_script} > /dev/null 2>&1\n"
+                 . "* * * * * root {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
                  . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
 
     @file_put_contents($cron_file, $content);
