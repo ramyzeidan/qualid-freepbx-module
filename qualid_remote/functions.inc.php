@@ -1181,7 +1181,7 @@ function qualid_remote_get_config() {
     qualid_sync_cdr_to_qualid($token);
     qualid_send_heartbeat($token);
 
-    // Write a cron job so syncing continues automatically every 5 minutes
+    // Write a cron job so syncing continues automatically every minute
     // without requiring a page visit.  This hook runs as root so it has
     // permission to write to /etc/cron.d/.
     qualid_write_cron();
@@ -1208,7 +1208,7 @@ function qualid_write_cron() {
     $cron_file   = '/etc/cron.d/qualid_remote';
     $cloud_ip    = QUALID_CLOUD_IP;
     $content     = "# Quali-D Connect — automatic sync & RTP watchdog\n"
-                 . "*/5 * * * * root {$php_bin} {$sync_script} > /dev/null 2>&1\n"
+                 . "* * * * * root {$php_bin} {$sync_script} > /dev/null 2>&1\n"
                  . "* * * * * root {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
                  . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
 
