@@ -1186,6 +1186,7 @@ function qualid_remote_get_config() {
     qualid_sync_queues($token);
     qualid_sync_cdr_to_qualid($token);
     qualid_send_heartbeat($token);
+    qualid_sync_trunks($token);
 
     // Write a cron job so syncing continues automatically every minute
     // without requiring a page visit.  This hook runs as root so it has

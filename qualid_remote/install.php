@@ -38,6 +38,13 @@ if (file_exists($cfg_path)) {
         qualid_write_outbound_dialplan();
         out('Quali-D Connect: outbound IVR dialplan context written.');
     }
+    // Refresh cron entries so the per-minute sync continues to run
+    // after an install or upgrade (install.php runs as root, so it can
+    // write the asterisk crontab).
+    if (function_exists('qualid_write_cron')) {
+        qualid_write_cron();
+        out('Quali-D Connect: cron entries refreshed.');
+    }
     // Upgrade path: immediately sync extensions + CDR so new installs are
     // up-to-date without waiting for Apply Config or a page visit.
     if (is_array($cfg) && !empty($cfg['token'])) {
