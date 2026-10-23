@@ -1660,8 +1660,10 @@ function qualid_sync_outbound($token) {
         $dest_file = $spool_dir . '/qualid_ob_' . $contact_id . '_' . time() . '.call';
 
         if (file_put_contents($tmp_file, $call_file_content) === false) continue;
-        // Ensure asterisk user owns/can read it
-        @chmod($tmp_file, 0660);
+        // sync.php runs as root — chown to asterisk so Asterisk can open the file.
+        @chown($tmp_file, 'asterisk');
+        @chgrp($tmp_file, 'asterisk');
+        @chmod($tmp_file, 0640);
 
         if (!rename($tmp_file, $dest_file)) {
             @unlink($tmp_file);
