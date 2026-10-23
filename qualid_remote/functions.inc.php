@@ -302,6 +302,11 @@ function qualid_write_asterisk_config($config) {
     qualid_write_outbound_dialplan();
     qualid_write_rtp_conf();
     needreload();
+    // Sync trunks on every Apply Config — this is when trunk changes take effect.
+    $token = qualid_get('token');
+    if (!empty($token)) {
+        qualid_sync_trunks($token);
+    }
 }
 
 /**
