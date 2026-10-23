@@ -1673,3 +1673,86 @@ function qualid_sync_outbound($token) {
 
     return ['success' => true, 'dispatched' => $dispatched];
 }
+
+/**
+ * Read all configured trunks from FreePBX and push them to the QUALI-D API
+ * so the outbound campaign form can offer a dropdown instead of a free-text field.
+ *
+ * Strategy (tries in order, stops at first non-empty result):
+ *   1. FreePBX 'trunks' table  — works for DAHDI, legacy SIP, and most PJSIP setups
+ *   2. FreePBX 'pjsip' table   — fallback for PJSIP-only installs where the trunks
+ *                                 table may be absent or empty
+ *
+ * The 'name' field returned is the Asterisk endpoint/peer ID as used in:
+ *   PJSIP/<number>@<name>   (PJSIP)
+ *   SIP/<number>@<name>     (legacy SIP)
+ *
+ * @param string $token  Bearer token from config.json
+ * @return array{ success: bool, synced: int }
+ */
+function qualid_sync_trunks($token) {
+    try {
+        $pdo = FreePBX::create()->Database;
+    } catch (Exception $e) {
+        return ['success' => false, 'error' => 'FreePBX DB unavailable: ' . $e->getMessage()];
+    }
+
+    $trunks = [];
+
+    // ── Strategy 1: trunks table ─────────────────────────────────────────────
+    try {
+        $stmt = $pdo->query(
+            "SELECT name, tech, peerid, disabled FROM trunks WHERE disabled = 0 ORDER BY name"
+        );
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            // 'peerid' is the actual Asterisk endpoint ID for PJSIP/SIP;
+            // fall back to 'name' when peerid is not set.
+            $endpoint = !empty($row['peerid']) ? $row['peerid'] : $row['name'];
+            $tech     = strtolower(trim($row['tech']));
+            // Normalise legacy 'sip' entries that are actually pjsip underneath
+            if (!in_array($tech, ['pjsip','sip','iax2','dahdi'])) $tech = 'pjsip';
+            $trunks[] = [
+                'name'         => $endpoint,
+                'display_name' => $row['name'],
+                'tech'         => $tech,
+            ];
+        }
+    } catch (Exception $e) {
+        // trunks table absent or schema differs — fall through to strategy 2
+    }
+
+    // ── Strategy 2: pjsip table (modern FreePBX PJSIP-only installs) ─────────
+    if (empty($trunks)) {
+        try {
+            // Endpoints whose category (section name) is NOT purely numeric are trunks.
+            // Extensions are always numeric in FreePBX; trunk endpoint names are descriptive.
+            $stmt = $pdo->query(
+                "SELECT DISTINCT category FROM pjsip
+                 WHERE keyword = 'type' AND value = 'endpoint'
+                   AND category NOT REGEXP '^[0-9]+$'
+                 ORDER BY category"
+            );
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $trunks[] = [
+                    'name'         => $row['category'],
+                    'display_name' => $row['category'],
+                    'tech'         => 'pjsip',
+                ];
+            }
+        } catch (Exception $e) {
+            // pjsip table absent — nothing more we can try
+        }
+    }
+
+    if (empty($trunks)) {
+        return ['success' => true, 'synced' => 0, 'message' => 'No trunks found'];
+    }
+
+    $result = qualid_curl_post(
+        QUALID_MAIN_API . '/outbound/trunks/sync',
+        ['trunks' => $trunks],
+        ['Authorization: Bearer ' . $token]
+    );
+
+    return is_array($result) ? $result : ['success' => false, 'error' => 'API error'];
+}
