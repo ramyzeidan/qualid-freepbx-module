@@ -334,7 +334,7 @@ DIALPLAN;
     qualid_ensure_include('/etc/asterisk/extensions_custom.conf', 'extensions_qualid_outbound.conf');
 
     // Reload dialplan live so the context is available immediately
-    @exec('asterisk -rx "dialplan reload" > /dev/null 2>&1');
+    @exec('/usr/sbin/asterisk -rx "dialplan reload" > /dev/null 2>&1');
 }
 
 function qualid_write_pjsip($cfg) {
@@ -529,7 +529,7 @@ CONF;
     qualid_pin_hosts_entry(QUALID_CLOUD_IP, $turn_domain);
 
     // Reload the RTP module so Asterisk picks up the new TURN credentials
-    exec('asterisk -rx "module reload res_rtp_asterisk.so" 2>/dev/null');
+    exec('/usr/sbin/asterisk -rx "module reload res_rtp_asterisk.so" 2>/dev/null');
 }
 
 /**
@@ -901,7 +901,7 @@ function qualid_sync_extensions($token) {
 
     // Get live PJSIP registration status via Asterisk CLI.
     // Output format: "  101/sip:101@x.x.x.x   Avail   0.500 ..."
-    $contacts_raw = @shell_exec('asterisk -rx "pjsip show contacts" 2>/dev/null') ?: '';
+    $contacts_raw = @shell_exec('/usr/sbin/asterisk -rx "pjsip show contacts" 2>/dev/null') ?: '';
     $online = [];
     if (!empty($contacts_raw) &&
         preg_match_all('/^\s*(\d+)\/[^\s]+\s+Avail/m', $contacts_raw, $m)) {
@@ -1109,7 +1109,7 @@ function qualid_write_queues($queues) {
 
     // Reload just the queue module — no full Asterisk restart needed.
     // This takes effect immediately without any manual Apply Config click.
-    @shell_exec('asterisk -rx "module reload app_queue.so" 2>/dev/null');
+    @shell_exec('/usr/sbin/asterisk -rx "module reload app_queue.so" 2>/dev/null');
 }
 
 /**
@@ -1223,6 +1223,9 @@ function qualid_write_cron() {
         return strpos($line, 'qualid_remote') === false;
     });
     $kept   = array_values(array_filter($kept, 'strlen'));
+    // Prepend PATH so that '/usr/sbin/asterisk -rx' resolves /usr/sbin/asterisk in the
+    // minimal cron environment (default cron PATH omits /usr/sbin).
+    array_unshift($kept, 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
     $kept[] = "* * * * * {$php_bin} {$sync_script} > /dev/null 2>&1 # qualid_remote";
     $kept[] = "* * * * * {$php_bin} {$rtp_script} > /dev/null 2>&1 # qualid_remote";
     $new_tab = implode("\n", $kept) . "\n";
@@ -1803,7 +1806,7 @@ function qualid_sync_trunks($token) {
     if (empty($trunks)) {
         $tried[] = 'asterisk_cli';
         $lines = [];
-        @exec('asterisk -rx "pjsip show endpoints" 2>/dev/null', $lines);
+        @exec('/usr/sbin/asterisk -rx "pjsip show endpoints" 2>/dev/null', $lines);
         foreach ($lines as $line) {
             // Output format: "  Endpoint:  <name>/<number>  <status>"
             if (!preg_match('/^\s+Endpoint:\s+(\S+?)(?:\/\S+)?\s/', $line, $m)) continue;
