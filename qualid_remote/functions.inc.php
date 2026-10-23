@@ -1205,28 +1205,54 @@ function qualid_write_cron() {
     $sync_script = $module_dir . '/sync.php';
     $rtp_script  = $module_dir . '/deferred_rtp.php';
     $php_bin     = PHP_BINARY ?: '/usr/bin/php';
-    $cron_file   = '/etc/cron.d/qualid_remote';
     $cloud_ip    = QUALID_CLOUD_IP;
-    // ASCII-only comment: cron silently rejects /etc/cron.d/ files that contain
-    // non-ASCII characters (e.g. Unicode em-dashes) on many Debian installations.
-    $content     = "# Quali-D Connect - automatic sync and RTP watchdog\n"
-                 . "SHELL=/bin/sh\n"
-                 . "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n"
-                 . "* * * * * root {$php_bin} {$sync_script} > /dev/null 2>&1\n"
-                 . "* * * * * root {$php_bin} {$rtp_script} > /dev/null 2>&1\n"
-                 . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
 
+    // ── Asterisk user crontab (sync + RTP watchdog) ──────────────────────────
+    // The asterisk crontab is proven to fire on FreePBX/Debian systems.
+    // /etc/cron.d/ entries silently fail on many Debian installs when the file
+    // mixes regular schedules with @reboot — the whole file gets dropped.
+    $existing = @shell_exec('crontab -u asterisk -l 2>/dev/null') ?: '';
+    $kept = array_filter(explode("\n", $existing), function ($line) {
+        return strpos($line, 'qualid_remote') === false;
+    });
+    $kept   = array_values(array_filter($kept, 'strlen'));
+    $kept[] = "* * * * * {$php_bin} {$sync_script} > /dev/null 2>&1 # qualid_remote";
+    $kept[] = "* * * * * {$php_bin} {$rtp_script} > /dev/null 2>&1 # qualid_remote";
+    $new_tab = implode("\n", $kept) . "\n";
+    $tmpfile = tempnam('/tmp', 'qualid_cron_');
+    file_put_contents($tmpfile, $new_tab);
+    @exec('crontab -u asterisk ' . escapeshellarg($tmpfile));
+    @unlink($tmpfile);
+
+    // ── /etc/cron.d/ — @reboot only (socat tunnel, needs root) ──────────────
+    $cron_file = '/etc/cron.d/qualid_remote';
+    $content   = "# Quali-D Connect - startup tunnel (root required)\n"
+               . "SHELL=/bin/sh\n"
+               . "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n"
+               . "@reboot root /usr/bin/socat UDP4-LISTEN:3479,reuseaddr,fork TCP4:{$cloud_ip}:80,nodelay > /dev/null 2>&1 &\n";
     @file_put_contents($cron_file, $content);
     @chmod($cron_file, 0644);
-    // Signal cron to re-read /etc/cron.d/ immediately
     @exec('systemctl reload cron 2>/dev/null || service cron reload 2>/dev/null || true');
 }
 
 /**
- * Remove the cron job written by qualid_write_cron().
+ * Remove the cron jobs written by qualid_write_cron().
  * Called on disconnect and uninstall.
  */
 function qualid_remove_cron() {
+    // Remove from asterisk crontab
+    $existing = @shell_exec('crontab -u asterisk -l 2>/dev/null') ?: '';
+    $kept = array_filter(explode("\n", $existing), function ($line) {
+        return strpos($line, 'qualid_remote') === false;
+    });
+    $kept    = array_values(array_filter($kept, 'strlen'));
+    $new_tab = $kept ? implode("\n", $kept) . "\n" : '';
+    $tmpfile = tempnam('/tmp', 'qualid_cron_');
+    file_put_contents($tmpfile, $new_tab);
+    @exec('crontab -u asterisk ' . escapeshellarg($tmpfile));
+    @unlink($tmpfile);
+
+    // Remove the cron.d file
     $cron_file = '/etc/cron.d/qualid_remote';
     if (file_exists($cron_file)) {
         @unlink($cron_file);
